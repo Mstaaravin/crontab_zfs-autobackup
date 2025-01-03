@@ -1,18 +1,31 @@
-#!/bin/bash
-# v1.0.2
-# ZFS backup script with automated snapshot management and logging
-# This script performs ZFS backups using zfs-autobackup tool
+#!/usr/bin/env bash
+#
+# Copyright (c) 2024. All rights reserved.
+# 
+# Name: script_zfs-autobackup.sh
+# Version: 1.0.4
+# Author: Mstaaravin
+# Description: ZFS backup script with automated snapshot management and logging
+#             This script performs ZFS backups using zfs-autobackup tool
+#
+# Usage: ./script_zfs-autobackup.sh [pool_name]
+#
+# Exit codes:
+#   0 - Success
+#   1 - Dependency check failed/Pool validation failed
+#
 
 # Global configuration
 # Define remote hostname destination, requires ssh-key access or ~/.ssh/config host alias definition
 REMOTE_HOST="zima01"
+REMOTE_POOL_BASEPATH="WD181KFGX/BACKUPS"
 
 # Define logs directory and date format
 LOG_DIR="/root/logs"
 DATE=$(date +%Y%m%d)
 
-# Default pools to backup if none specified
-DEFAULT_POOLS=(
+# Source pools to backup if none specified
+SOURCE_POOLS=(
     "spcca581117"
     "zserver01"
 )
@@ -82,7 +95,7 @@ log_backup() {
     log_message "- Log file: $logfile" | tee -a "$logfile"
     
     # Execute backup with full output capture
-    if ! zfs-autobackup -v --clear-mountpoint --force --ssh-target "$REMOTE_HOST" "$pool" WD181KFGX/BACKUPS > >(tee -a "$logfile") 2> >(tee -a "$temp_error_file" >&2); then
+    if ! zfs-autobackup -v --clear-mountpoint --force --ssh-target "$REMOTE_HOST" "$pool" "$REMOTE_POOL_BASEPATH" > >(tee -a "$logfile") 2> >(tee -a "$temp_error_file" >&2); then
         log_message "- Backup failed" | tee -a "$logfile"
         cat "$temp_error_file" | tee -a "$logfile"
         printf '\n\n\n\n' | tee -a "$logfile"
@@ -150,7 +163,7 @@ main() {
             exit 1
         fi
     else
-        POOLS=("${DEFAULT_POOLS[@]}")
+        POOLS=("${SOURCE_POOLS[@]}")
     fi
 
     # Process each pool
