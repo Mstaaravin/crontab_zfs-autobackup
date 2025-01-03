@@ -1,22 +1,28 @@
 #!/bin/bash
-# v1.0.0
+# v1.0.2
+# ZFS backup script with automated snapshot management and logging
+# This script performs ZFS backups using zfs-autobackup tool
 
-# Define logs directory
+# Global configuration
+# Define remote hostname destination, requires ssh-key access or ~/.ssh/config host alias definition
+REMOTE_HOST="zima01"
+
+# Define logs directory and date format
 LOG_DIR="/root/logs"
 DATE=$(date +%Y%m%d)
 
-# Define default pools to backup
+# Default pools to backup if none specified
 DEFAULT_POOLS=(
     "spcca581117"
     "zserver01"
 )
 
-# Function to echo with timestamp
+# Function to log messages with timestamp
 log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
-# Function to check if zfs-autobackup is available
+# Check if required tools are installed
 check_dependencies() {
     if ! command -v zfs-autobackup >/dev/null 2>&1; then
         log_message "Error: zfs-autobackup is not installed"
@@ -25,7 +31,7 @@ check_dependencies() {
     return 0
 }
 
-# Function to validate if a pool exists
+# Validate if ZFS pool exists
 validate_pool() {
     local pool=$1
     if ! zfs list "$pool" >/dev/null 2>&1; then
@@ -35,14 +41,13 @@ validate_pool() {
     return 0
 }
 
-# Function to check recent snapshots (last 24h)
+# Check for snapshots created in the last 24 hours
 check_recent_snapshots() {
     local pool=$1
     local current_timestamp=$(date +%s)
     
-    # Get list of snapshots for the specific pool only
     zfs list -t snapshot -o name,creation -Hp | grep "^${pool}[@]" | while read -r snapshot creation; do
-        # If snapshot is less than 24h old (86400 seconds)
+        # Calculate time difference
         time_diff=$((current_timestamp - creation))
         if [ $time_diff -lt 86400 ]; then
             echo "Recent snapshot found: $snapshot ($(date -d @${creation}))"
@@ -53,60 +58,65 @@ check_recent_snapshots() {
     return 1
 }
 
-# Function for backup and logging
+# Perform backup and log the process
 log_backup() {
     local pool=$1
     local logfile="$LOG_DIR/${pool}_backup_${DATE}.log"
     local temp_error_file=$(mktemp)
     
-    log_message "Processing pool: $pool"
-    log_message "- Checking for recent snapshots..."
-    
-    echo "=== Starting backup process for pool $pool - $(date) ===" >> "$logfile"
+    # Start logging from the beginning
+    log_message "Processing pool: $pool" | tee -a "$logfile"
+    log_message "- Checking for recent snapshots..." | tee -a "$logfile"
     
     # Check for recent snapshots first
-    if check_recent_snapshots "$pool" >> "$logfile" 2>&1; then
-        log_message "- Recent snapshot found, skipping backup"
-        echo "✗ Skipping backup - Recent snapshot exists (less than 24h old)" >> "$logfile"
-        echo "===========================================" >> "$logfile"
+    if check_recent_snapshots "$pool" > >(tee -a "$logfile") 2>&1; then
+        log_message "- Recent snapshot found, skipping backup" | tee -a "$logfile"
+        echo "✗ Skipping backup - Recent snapshot exists (less than 24h old)" | tee -a "$logfile"
+        printf '\n\n\n\n' | tee -a "$logfile"
+        echo "Execution Summary:" | tee -a "$logfile"
+        echo "- $pool: ✗ Skipped (Recent snapshot exists)" | tee -a "$logfile"
         return 0
     fi
 
-    log_message "- Starting backup"
-    log_message "- Log file: $logfile"
+    log_message "- Starting backup" | tee -a "$logfile"
+    log_message "- Log file: $logfile" | tee -a "$logfile"
     
-    echo "No recent snapshots found, proceeding with backup" >> "$logfile"
-    echo "Executing: zfs-autobackup --clear-mountpoint --force --ssh-target zima01 $pool WD181KFGX/BACKUPS" >> "$logfile"
-    
-    # Execute backup
-    if ! zfs-autobackup --clear-mountpoint --force --ssh-target zima01 "$pool" WD181KFGX/BACKUPS > >(tee -a "$logfile") 2> >(tee -a "$temp_error_file" >&2); then
-        log_message "- Backup failed"
-        echo "✗ Error during pool backup - $(date)" >> "$logfile"
-        echo "Error details:" >> "$logfile"
-        cat "$temp_error_file" >> "$logfile"
+    # Execute backup with full output capture
+    if ! zfs-autobackup -v --clear-mountpoint --force --ssh-target "$REMOTE_HOST" "$pool" WD181KFGX/BACKUPS > >(tee -a "$logfile") 2> >(tee -a "$temp_error_file" >&2); then
+        log_message "- Backup failed" | tee -a "$logfile"
+        cat "$temp_error_file" | tee -a "$logfile"
+        printf '\n\n\n\n' | tee -a "$logfile"
+        echo "Execution Summary:" | tee -a "$logfile"
+        echo "- $pool: ✗ Failed" | tee -a "$logfile"
         FAILED_POOLS+=("$pool")
     else
-        log_message "- Backup completed successfully"
-        echo "✓ Pool backup completed successfully - $(date)" >> "$logfile"
+        log_message "- Backup completed successfully" | tee -a "$logfile"
+        printf '\n' | tee -a "$logfile"
+        echo "Execution Summary:" | tee -a "$logfile"
+        echo "- $pool: ✓ Completed" | tee -a "$logfile"
     fi
     
     rm -f "$temp_error_file"
-    echo "===========================================" >> "$logfile"
 }
 
-# Function to clean logs without corresponding snapshots
+# Clean old logs that don't have corresponding snapshots
 clean_old_logs() {
     local pool=$1
     
     # Get dates of existing snapshots
     local snapshot_dates=$(zfs list -t snapshot -o name -H "$pool" | grep "@${pool}-" | cut -d'-' -f2 | cut -c1-8)
+    local current_date=$(date +%Y%m%d)
     
-    # For each log file of this pool
+    # Check each log file
     find "$LOG_DIR" -name "${pool}_backup_*.log" | while read logfile; do
-        # Extract date from log filename
         log_date=$(echo "$logfile" | grep -o '[0-9]\{8\}')
         
-        # Check if this date exists in snapshots
+        # Skip if it's today's log
+        if [ "$log_date" = "$current_date" ]; then
+            continue
+        fi
+        
+        # Only remove if it's an old log without corresponding snapshot
         if ! echo "$snapshot_dates" | grep -q "$log_date"; then
             log_message "Removing old log without snapshot: $logfile"
             rm "$logfile"
@@ -114,25 +124,25 @@ clean_old_logs() {
     done
 }
 
-# Main execution
+# Main execution function
 main() {
     log_message "Starting ZFS backup process"
     log_message "Checking dependencies..."
     
-    # Check dependencies first
+    # Verify dependencies
     if ! check_dependencies; then
         log_message "Failed dependency check. Exiting."
         exit 1
     fi
     log_message "Dependencies OK"
 
-    # Create logs directory if it doesn't exist
+    # Ensure log directory exists
     mkdir -p "$LOG_DIR"
 
-    # Array to store failed pools
+    # Array for tracking failed pools
     declare -a FAILED_POOLS=()
 
-    # If a pool is specified as parameter, use it instead of the default list
+    # Use specified pool or default list
     if [ $# -eq 1 ]; then
         if validate_pool "$1"; then
             POOLS=("$1")
@@ -143,19 +153,18 @@ main() {
         POOLS=("${DEFAULT_POOLS[@]}")
     fi
 
-    # Execute backups sequentially for each pool
+    # Process each pool
     for pool in "${POOLS[@]}"; do
         log_backup "$pool"
-        # Add a small delay between pools
-        sleep 5
+        sleep 5  # Brief pause between pools
     done
 
-    # Clean logs for each pool
+    # Clean old logs
     for pool in "${POOLS[@]}"; do
         clean_old_logs "$pool"
     done
 
-    # Print execution summary
+    # Final execution summary
     log_message "Backup process completed"
     echo
     echo "Execution Summary:"
@@ -168,6 +177,6 @@ main() {
     done
 }
 
-# Run main function with all arguments
+# Run main function with provided arguments
 main "$@"
 exit 0
