@@ -1,6 +1,6 @@
 # ZFS Backup Script
 
-Automated bash script utilizing zfs-autobackup tool for snapshot management and replication.
+Automated ZFS backup script utilizing zfs-autobackup tool for snapshot management and replication.
 
 ## Features
 - Automated ZFS pool backup with snapshot management
@@ -13,6 +13,15 @@ Automated bash script utilizing zfs-autobackup tool for snapshot management and 
 - zfs-autobackup package installed
 - SSH key authentication configured for remote target
 - ZFS pool property configuration for autobackup
+
+### Installation (Debian 12)
+```bash
+:~# apt install pipx -y
+:~# pipx install zfs-autobackup
+:~# pipx ensurepath
+:~# pipx completions
+:~# eval "$(register-python-argcomplete pipx)"
+```
 
 ### SSH Configuration
 Create or edit `/root/.ssh/config`:
@@ -28,9 +37,9 @@ The `Ciphers aes128-gcm@openssh.com` configuration optimizes SSH bandwidth by us
 ### Required ZFS Configuration
 Each pool to be backed up needs the autobackup property set:
 ```bash
-zfs set autobackup:poolname=true poolname
+:~# zfs set autobackup:poolname=true poolname
 # Example:
-zfs set autobackup:zlhome01=true zlhome01
+:~# zfs set autobackup:zlhome01=true zlhome01
 ```
 
 ## Configuration
@@ -41,16 +50,16 @@ Edit the script to set:
 
 ## Usage
 ```bash
-./backup_zfs.sh [pool_name]
+:~# ./backup_zfs.sh [pool_name]
 ```
 
 ### Examples
 ```bash
 # Backup all configured pools
-./backup_zfs.sh
+:~# ./backup_zfs.sh
 
 # Backup specific pool
-./backup_zfs.sh zlhome01
+:~# ./backup_zfs.sh zlhome01
 ```
 
 ## Logs
