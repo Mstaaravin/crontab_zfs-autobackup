@@ -1,6 +1,9 @@
 # ZFS Bash Backup Script
 
-Automated bash script utilizing zfs-autobackup tool for snapshot management and replication.
+Automated bash script for crontab execution that utilizes zfs-autobackup for snapshot management and replication.
+The script handles logging, snapshot verification, and multiple pool backups.
+
+⚠️ This script is designed for crontab execution only. For detailed zfs-autobackup usage and documentation, please refer to the official repository: https://github.com/psy0rz/zfs_autobackup
 
 ## Features
 - Automated ZFS pool backup with snapshot management
