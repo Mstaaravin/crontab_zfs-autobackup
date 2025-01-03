@@ -18,7 +18,7 @@ The script handles logging, snapshot verification, and multiple pool backups.
 - SSH key authentication configured for remote target
 - ZFS pool property configuration for autobackup
 
-### zfs-autonbackup installation (Debian 12)
+### zfs-autobackup installation (Debian 12)
 ```bash
 :~# apt install pipx -y
 :~# pipx install zfs-autobackup
