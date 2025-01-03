@@ -97,6 +97,10 @@ Configure root's crontab to run daily at 23:00:
 ```
 Note: Include PATH to ensure zfs-autobackup is accessible in cron environment.
 
+## Useful Links
+- [ZFS Autobackup Official Repository](https://github.com/psy0rz/zfs_autobackup)
+- [Automating ZFS Snapshots for Peace of Mind](https://it-notes.dragas.net/2024/08/21/automating-zfs-snapshots-for-peace-of-mind/)
+- [OpenZFS Documentation](https://openzfs.github.io/openzfs-docs/)
 
 
 ## License
