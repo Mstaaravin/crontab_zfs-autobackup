@@ -1,6 +1,6 @@
-# ZFS Backup Script
+# ZFS Bash Backup Script
 
-Automated ZFS backup script utilizing zfs-autobackup tool for snapshot management and replication.
+Automated bash script utilizing zfs-autobackup tool for snapshot management and replication.
 
 ## Features
 - Automated ZFS pool backup with snapshot management
@@ -14,7 +14,7 @@ Automated ZFS backup script utilizing zfs-autobackup tool for snapshot managemen
 - SSH key authentication configured for remote target
 - ZFS pool property configuration for autobackup
 
-### Installation (Debian 12)
+### zfs-autonbackup installation (Debian 12)
 ```bash
 :~# apt install pipx -y
 :~# pipx install zfs-autobackup
@@ -28,7 +28,7 @@ Create or edit `/root/.ssh/config`:
 ```
 Host zima01
     HostName 172.16.254.5
-    IdentityFile ~/.ssh/cmiranda
+    IdentityFile ~/.ssh/id_rsa
     Ciphers aes128-gcm@openssh.com
 ```
 
@@ -41,6 +41,20 @@ Each pool to be backed up needs the autobackup property set:
 # Example:
 :~# zfs set autobackup:zlhome01=true zlhome01
 ```
+
+### Verify ZFS Configuration
+Verify autobackup property is set for the pool and its datasets:
+```bash
+:~# zfs get all | grep autobackup
+```
+
+Example output:
+```
+zlhome01                       autobackup:zlhome01   true   local
+zlhome01/HOME.cmiranda        autobackup:zlhome01   true   inherited from zlhome01
+zlhome01/HOME.root           autobackup:zlhome01   true   inherited from zlhome01
+```
+The property should be 'local' on the pool and 'inherited' on datasets.
 
 ## Configuration
 Edit the script to set:
