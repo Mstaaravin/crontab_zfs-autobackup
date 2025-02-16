@@ -91,12 +91,10 @@ Logs are stored in `/root/logs/` by default:
 - Automatically handles incremental snapshots to minimize data transfer
 
 ## Scheduling
-Configure root's crontab to run daily at 23:00:
+Configure root's crontab to run daily at desired time:
 ```bash
-:~# crontab -l
-0 23 * * * PATH=$PATH:/root/.local/bin /root/script_zfs-autobackup.sh > /root/logs/cron_backup.log 2>&1
-```
-Note: Include PATH to ensure zfs-autobackup is accessible in cron environment.
+# Run daily at 14:35
+35 14 * * * /root/scripts/backup_zfs.sh > /root/logs/cron_backup.log 2>&1
 
 ## Useful Links
 - [ZFS Autobackup Official Repository](https://github.com/psy0rz/zfs_autobackup)

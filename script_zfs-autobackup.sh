@@ -33,7 +33,7 @@ REMOTE_POOL_BASEPATH="WD181KFGX/BACKUPS"
 
 # Basic logging configuration and date formats
 LOG_DIR="/root/logs"
-DATE=$(date +%Y%m%d)                         # Used for filenames (YYYYMMDD)
+DATE=$(date +%Y%m%d_%H%M)                         # Used for filenames (YYYYMMDD)
 TIMESTAMP="[$(date '+%Y-%m-%d %H:%M:%S')]"   # Used for log messages
 
 # Function to update timestamp
