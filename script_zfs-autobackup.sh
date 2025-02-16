@@ -3,7 +3,7 @@
 # Copyright (c) 2024. All rights reserved.
 # 
 # Name: script_zfs-autobackup.sh
-# Version: 1.0.4
+# Version: 1.0.5
 # Author: Mstaaravin
 # Description: ZFS backup script with automated snapshot management and logging
 #             This script performs ZFS backups using zfs-autobackup tool
@@ -15,14 +15,29 @@
 #   1 - Dependency check failed/Pool validation failed
 #
 
+# Ensure script fails on any error
+set -e
+
+# Enable debug mode for cron troubleshooting
+set -x
+
 # Global configuration
 # Define remote hostname destination, requires ssh-key access or ~/.ssh/config host alias definition
 REMOTE_HOST="zima01"
 REMOTE_POOL_BASEPATH="WD181KFGX/BACKUPS"
 
-# Define logs directory and date format
+# Define logs directory and date formats
 LOG_DIR="/root/logs"
 DATE=$(date +%Y%m%d)
+TIMESTAMP="[$(date '+%Y-%m-%d %H:%M:%S')]"
+
+# Function to update timestamp
+update_timestamp() {
+    TIMESTAMP="[$(date '+%Y-%m-%d %H:%M:%S')]"
+}
+
+# Ensure PATH includes necessary directories
+export PATH="/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 # Source pools to backup if none specified
 SOURCE_POOLS=(
@@ -32,8 +47,16 @@ SOURCE_POOLS=(
 
 # Function to log messages with timestamp
 log_message() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    update_timestamp
+    echo "${TIMESTAMP} $1" | logger -t zfs-backup
+    echo "${TIMESTAMP} $1"
 }
+
+# Check if running as root
+if [ "$(id -u)" != "0" ]; then
+    log_message "Error: This script must be run as root"
+    exit 1
+fi
 
 # Check if required tools are installed
 check_dependencies() {
@@ -44,13 +67,20 @@ check_dependencies() {
     return 0
 }
 
-# Validate if ZFS pool exists
+# Validate if ZFS pool exists and has required properties
 validate_pool() {
     local pool=$1
     if ! zfs list "$pool" >/dev/null 2>&1; then
         log_message "Error: Pool $pool does not exist"
         return 1
     fi
+    
+    # Verify autobackup property is set
+    if ! zfs get autobackup:${pool} ${pool} | grep -q "true"; then
+        log_message "Error: autobackup:${pool} property not set to true for pool ${pool}"
+        return 1
+    fi
+    
     return 0
 }
 
@@ -150,7 +180,10 @@ main() {
     log_message "Dependencies OK"
 
     # Ensure log directory exists
-    mkdir -p "$LOG_DIR"
+    mkdir -p "$LOG_DIR" || {
+        log_message "Error: Could not create log directory $LOG_DIR"
+        exit 1
+    }
 
     # Array for tracking failed pools
     declare -a FAILED_POOLS=()
