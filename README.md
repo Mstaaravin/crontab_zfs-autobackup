@@ -111,7 +111,6 @@ You can verify the backup process by comparing snapshots on both source and targ
 List all ZFS devices on my source system and list all ZFS snapshots on zlhome01/HOME.cmiranda
 
 ```bash
-# 
 root@lhome01:~# zfs list 
 NAME                                       USED  AVAIL     REFER  MOUNTPOINT
 zlhome01                                  1.90T   904G       24K  none
