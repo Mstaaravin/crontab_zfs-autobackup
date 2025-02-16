@@ -101,6 +101,8 @@ Configure root's crontab to run daily at desired time:
 - [ZFS Autobackup Official Repository](https://github.com/psy0rz/zfs_autobackup)
 - [Automating ZFS Snapshots for Peace of Mind](https://it-notes.dragas.net/2024/08/21/automating-zfs-snapshots-for-peace-of-mind/)
 - [OpenZFS Documentation](https://openzfs.github.io/openzfs-docs/)
+- [Benchmark SSH Ciphers](https://gbe0.com/posts/linux/server/benchmark-ssh-ciphers/)
+- [Benchmarking SSH Ciphers](https://bash-prompt.net/guides/bash-ssh-ciphers/)
 
 
 ## License
