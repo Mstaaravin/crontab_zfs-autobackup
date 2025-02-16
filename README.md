@@ -6,6 +6,22 @@ The script handles logging, snapshot verification, and multiple pool backups.
 > Note: This script is designed for crontab execution only. For detailed zfs-autobackup usage and documentation, please refer to the official repository: https://github.com/psy0rz/zfs_autobackup
 > Also, this script was developed with the assistance of AI to enhance reliability and best practices.
 
+## Table of Contents
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+  - [zfs-autobackup installation](#zfs-autobackup-installation-debian-12)
+  - [SSH Configuration](#ssh-configuration)
+  - [Required ZFS Configuration](#required-zfs-configuration)
+  - [Verify ZFS Configuration](#verify-zfs-configuration)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Logs](#logs)
+- [Verification](#verification)
+- [Performance Considerations](#performance-considerations)
+- [Scheduling](#scheduling)
+- [Useful Links](#useful-links)
+- [License](#license)
+
 ## Features
 - Automated ZFS pool backup with snapshot management
 - Configurable remote backup target
