@@ -19,7 +19,7 @@
 set -e
 
 # Enable debug mode for cron troubleshooting
-set -x
+# set -x
 
 # Global configuration
 

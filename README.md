@@ -81,9 +81,76 @@ Edit the script to set:
 ```
 
 ## Logs
-Logs are stored in `/root/logs/` by default:
+Logs are stored in `/root/logs/`:
 - Script execution logs: `/root/logs/cron_backup.log`
-- Individual pool backup logs: `/root/logs/poolname_backup_YYYYMMDD.log`
+- Individual pool backup logs: `/root/logs/poolname_backup_YYYYMMDD_HHMM.log`
+
+See [example log output](docs/log_output.md) for a complete execution example.
+
+
+## Verification
+You can verify the backup process by comparing snapshots on both source and target:
+
+### Source System
+List all ZFS devices on my source system and list all ZFS snapshots on zlhome01/HOME.cmiranda
+
+```bash
+# 
+root@lhome01:~# zfs list 
+NAME                                       USED  AVAIL     REFER  MOUNTPOINT
+zlhome01                                  1.90T   904G       24K  none
+zlhome01/HOME.cmiranda                    1.43T   904G     1.34T  /home/cmiranda
+zlhome01/HOME.root                        15.5G   904G     15.4G  /root
+zlhome01/etc.libvirt.qemu                  402K   904G     76.5K  /etc/libvirt/qemu/
+zlhome01/var.lib.docker                    132G   904G     26.2G  /var/lib/docker
+zlhome01/var.snap.lxd                     45.7G   904G     12.7G  /var/snap/lxd
+
+
+root@lhome01:~# zfs list -t snapshot zlhome01/HOME.cmiranda
+NAME                                             USED  AVAIL     REFER  MOUNTPOINT
+zlhome01/HOME.cmiranda@zlhome01-20241115013705  14.5G      -     1.25T  -
+zlhome01/HOME.cmiranda@zlhome01-20241214223058  14.7G      -     1.27T  -
+zlhome01/HOME.cmiranda@zlhome01-20250113180001  9.63G      -     1.32T  -
+zlhome01/HOME.cmiranda@zlhome01-20250123180001  5.48G      -     1.33T  -
+zlhome01/HOME.cmiranda@zlhome01-20250130195652  6.73G      -     1.34T  -
+zlhome01/HOME.cmiranda@zlhome01-20250206181002  4.91G      -     1.33T  -
+zlhome01/HOME.cmiranda@zlhome01-20250209181002  2.54G      -     1.33T  -
+zlhome01/HOME.cmiranda@zlhome01-20250210181902  2.11G      -     1.33T  -
+zlhome01/HOME.cmiranda@zlhome01-20250211181002  2.68G      -     1.33T  -
+zlhome01/HOME.cmiranda@zlhome01-20250213190813  3.22G      -     1.34T  -
+zlhome01/HOME.cmiranda@zlhome01-20250214152941  2.79G      -     1.34T  -
+zlhome01/HOME.cmiranda@zlhome01-20250215185238   905M      -     1.34T  -
+zlhome01/HOME.cmiranda@zlhome01-20250215232707   155M      -     1.34T  -
+zlhome01/HOME.cmiranda@zlhome01-20250216004001   146M      -     1.34T  -
+zlhome01/HOME.cmiranda@zlhome01-20250216143501   134M      -     1.34T  -
+zlhome01/HOME.cmiranda@zlhome01-20250216195101  62.4M      -     1.34T  -
+```
+
+### Target System
+List all ZFS snapshots on for zlhome01/HOME.cmiranda on remote host
+```bash
+root@zima01:~# zfs list -t snapshot WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda
+NAME                                                               USED  AVAIL     REFER  MOUNTPOINT
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20241115013705  15.1G      -     1.26T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20241214223058  15.2G      -     1.27T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20250113180001  10.0G      -     1.32T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20250123180001  5.69G      -     1.33T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20250130195652  6.94G      -     1.34T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20250206181002  5.10G      -     1.34T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20250209181002  2.64G      -     1.34T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20250210181902  2.20G      -     1.34T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20250211181002  2.80G      -     1.34T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20250213190813  3.35G      -     1.34T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20250214152941  2.87G      -     1.34T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20250215185238   937M      -     1.34T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20250215232707   160M      -     1.34T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20250216004001   152M      -     1.34T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20250216143501   143M      -     1.34T  -
+WD181KFGX/BACKUPS/zlhome01/HOME.cmiranda@zlhome01-20250216195101     0B      -     1.34T  -
+
+```
+
+
 
 ## Performance Considerations
 - Uses hardware-accelerated AES-GCM encryption for optimal SSH transfer speeds
