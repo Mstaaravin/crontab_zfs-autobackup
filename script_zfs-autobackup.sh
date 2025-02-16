@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Copyright (c) 2024. All rights reserved.
-# 
+#
 # Name: script_zfs-autobackup.sh
 # Version: 1.0.5
 # Author: Mstaaravin
@@ -22,14 +22,19 @@ set -e
 set -x
 
 # Global configuration
-# Define remote hostname destination, requires ssh-key access or ~/.ssh/config host alias definition
+
+# Remote destination - can be either:
+# - SSH config hostname (in ~/.ssh/config, e.g., "zima01")
+# - Direct IP address (e.g., "192.168.1.100")
+# Requires SSH key authentication and ZFS permissions on remote host (normally using root)
 REMOTE_HOST="zima01"
 REMOTE_POOL_BASEPATH="WD181KFGX/BACKUPS"
 
-# Define logs directory and date formats
+
+# Basic logging configuration and date formats
 LOG_DIR="/root/logs"
-DATE=$(date +%Y%m%d)
-TIMESTAMP="[$(date '+%Y-%m-%d %H:%M:%S')]"
+DATE=$(date +%Y%m%d)                         # Used for filenames (YYYYMMDD)
+TIMESTAMP="[$(date '+%Y-%m-%d %H:%M:%S')]"   # Used for log messages
 
 # Function to update timestamp
 update_timestamp() {
@@ -41,11 +46,12 @@ export PATH="/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:
 
 # Source pools to backup if none specified
 SOURCE_POOLS=(
-    "spcca581117"
-    "zserver01"
+    "zlhome01"
+    "anotherpool"
 )
 
-# Function to log messages with timestamp
+# Logs messages to both syslog and stdout
+# Uses global TIMESTAMP for consistency
 log_message() {
     update_timestamp
     echo "${TIMESTAMP} $1" | logger -t zfs-backup
@@ -58,7 +64,7 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
-# Check if required tools are installed
+# Verifies zfs-autobackup is installed and accessible
 check_dependencies() {
     if ! command -v zfs-autobackup >/dev/null 2>&1; then
         log_message "Error: zfs-autobackup is not installed"
@@ -74,21 +80,22 @@ validate_pool() {
         log_message "Error: Pool $pool does not exist"
         return 1
     fi
-    
+
     # Verify autobackup property is set
     if ! zfs get autobackup:${pool} ${pool} | grep -q "true"; then
         log_message "Error: autobackup:${pool} property not set to true for pool ${pool}"
         return 1
     fi
-    
+
     return 0
 }
 
-# Check for snapshots created in the last 24 hours
+# Checks for snapshots created in last 24h
+# Returns 0 if recent snapshot found, 1 otherwise
 check_recent_snapshots() {
     local pool=$1
     local current_timestamp=$(date +%s)
-    
+
     zfs list -t snapshot -o name,creation -Hp | grep "^${pool}[@]" | while read -r snapshot creation; do
         # Calculate time difference
         time_diff=$((current_timestamp - creation))
@@ -101,16 +108,18 @@ check_recent_snapshots() {
     return 1
 }
 
-# Perform backup and log the process
+# Main backup function for a single pool
+# Handles both backup execution and logging
+# Skips if recent snapshot exists
 log_backup() {
     local pool=$1
     local logfile="$LOG_DIR/${pool}_backup_${DATE}.log"
     local temp_error_file=$(mktemp)
-    
+
     # Start logging from the beginning
     log_message "Processing pool: $pool" | tee -a "$logfile"
     log_message "- Checking for recent snapshots..." | tee -a "$logfile"
-    
+
     # Check for recent snapshots first
     if check_recent_snapshots "$pool" > >(tee -a "$logfile") 2>&1; then
         log_message "- Recent snapshot found, skipping backup" | tee -a "$logfile"
@@ -123,7 +132,7 @@ log_backup() {
 
     log_message "- Starting backup" | tee -a "$logfile"
     log_message "- Log file: $logfile" | tee -a "$logfile"
-    
+
     # Execute backup with full output capture
     if ! zfs-autobackup -v --clear-mountpoint --force --ssh-target "$REMOTE_HOST" "$pool" "$REMOTE_POOL_BASEPATH" > >(tee -a "$logfile") 2> >(tee -a "$temp_error_file" >&2); then
         log_message "- Backup failed" | tee -a "$logfile"
@@ -138,27 +147,28 @@ log_backup() {
         echo "Execution Summary:" | tee -a "$logfile"
         echo "- $pool: ✓ Completed" | tee -a "$logfile"
     fi
-    
+
     rm -f "$temp_error_file"
 }
 
-# Clean old logs that don't have corresponding snapshots
+# Removes log files that don't have matching snapshots
+# Only processes logs older than current day
 clean_old_logs() {
     local pool=$1
-    
+
     # Get dates of existing snapshots
     local snapshot_dates=$(zfs list -t snapshot -o name -H "$pool" | grep "@${pool}-" | cut -d'-' -f2 | cut -c1-8)
     local current_date=$(date +%Y%m%d)
-    
+
     # Check each log file
     find "$LOG_DIR" -name "${pool}_backup_*.log" | while read logfile; do
         log_date=$(echo "$logfile" | grep -o '[0-9]\{8\}')
-        
+
         # Skip if it's today's log
         if [ "$log_date" = "$current_date" ]; then
             continue
         fi
-        
+
         # Only remove if it's an old log without corresponding snapshot
         if ! echo "$snapshot_dates" | grep -q "$log_date"; then
             log_message "Removing old log without snapshot: $logfile"
@@ -167,11 +177,13 @@ clean_old_logs() {
     done
 }
 
-# Main execution function
+# Main script execution
+# Validates dependencies and pools
+# Processes each pool and handles failures
 main() {
     log_message "Starting ZFS backup process"
     log_message "Checking dependencies..."
-    
+
     # Verify dependencies
     if ! check_dependencies; then
         log_message "Failed dependency check. Exiting."
