@@ -95,6 +95,7 @@ Configure root's crontab to run daily at desired time:
 ```bash
 # Run daily at 14:35
 35 14 * * * /root/scripts/backup_zfs.sh > /root/logs/cron_backup.log 2>&1
+```
 
 ## Useful Links
 - [ZFS Autobackup Official Repository](https://github.com/psy0rz/zfs_autobackup)
