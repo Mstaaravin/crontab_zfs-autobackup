@@ -28,6 +28,7 @@ The script handles logging, snapshot verification, and multiple pool backups.
 - Detailed logging with execution summaries
 - Support for multiple pools or single pool backup
 - Automatic cleanup of old logs
+- Detailed backup reports in tabular format with statistics
 
 ## Prerequisites
 - zfs-autobackup package installed
@@ -103,6 +104,36 @@ Logs are stored in `/root/logs/`:
 
 See [example log output](docs/log_output.md) for a complete execution example.
 
+## Reports
+Each backup operation generates a detailed report in tabular format at the end of execution. This provides a comprehensive overview of the backup operation including:
+
+### Dataset Information Table
+```
++--------------------------------+----------------+--------------------------------+-------------+-----------------------+
+| Dataset                        | Total Snaps    | Last Snapshot                  | Space Used  | Deleted Snapshots     |
++--------------------------------+----------------+--------------------------------+-------------+-----------------------+
+| zlhome01                       | 3              | zlhome01-20250331205942        | 24K         | -                     |
+| zlhome01/HOME.cmiranda         | 16             | zlhome01-20250331205942        | 73.8G       | zlhome01-20250318...  |
+```
+
+### Statistics
+```
++------------------------+-------------+
+| Metric                 | Value       |
++------------------------+-------------+
+| Total Datasets         | 9           |
+| Snapshots Created      | 9           |
+| Snapshots Deleted      | 7           |
+| Operation Duration     | 77 seconds  |
++------------------------+-------------+
+```
+
+These reports provide valuable information for monitoring and auditing your backup operations, allowing you to easily track:
+- Total number of snapshots per dataset
+- Last snapshot timestamp
+- Space usage by dataset
+- Deleted snapshots during retention policy enforcement
+- Overall operation statistics
 
 ## Verification
 You can verify the backup process by comparing snapshots on both source and target:
