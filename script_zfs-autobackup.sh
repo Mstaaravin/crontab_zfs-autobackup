@@ -362,9 +362,9 @@ log_backup() {
     if check_recent_snapshots "$pool" > >(tee -a "$logfile") 2>&1; then
         log_message "- Recent snapshot found, skipping backup" | tee -a "$logfile"
         echo "✗ Skipping backup - Recent snapshot exists (less than 24h old)" | tee -a "$logfile"
-        printf '\n\n\n\n' | tee -a "$logfile"
-        echo "Execution Summary:" | tee -a "$logfile"
-        echo "- $pool: ✗ Skipped (Recent snapshot exists)" | tee -a "$logfile"
+        printf '\n\n' | tee -a "$logfile"
+        
+        # Generate summary report without execution summary header
         generate_summary_report "${pool}" "✗ SKIPPED (Recent snapshot exists)" "${logfile}" | tee -a "${logfile}"
         return 0
     fi
@@ -376,16 +376,16 @@ log_backup() {
     if ! zfs-autobackup -v --clear-mountpoint --force --ssh-target "$REMOTE_HOST" "$pool" "$REMOTE_POOL_BASEPATH" > >(tee -a "$logfile") 2> >(tee -a "$temp_error_file" >&2); then
         log_message "- Backup failed" | tee -a "$logfile"
         cat "$temp_error_file" | tee -a "$logfile"
-        printf '\n\n\n\n' | tee -a "$logfile"
-        echo "Execution Summary:" | tee -a "$logfile"
-        echo "- $pool: ✗ Failed" | tee -a "$logfile"
+        printf '\n\n' | tee -a "$logfile"
+        
+        # Generate summary report without execution summary header
         generate_summary_report "${pool}" "✗ FAILED" "${logfile}" | tee -a "${logfile}"
         FAILED_POOLS+=("$pool")
     else
         log_message "- Backup completed successfully" | tee -a "$logfile"
         printf '\n' | tee -a "$logfile"
-        echo "Execution Summary:" | tee -a "$logfile"
-        echo "- $pool: ✓ Completed" | tee -a "$logfile"
+        
+        # Generate summary report without execution summary header
         generate_summary_report "${pool}" "✓ COMPLETED" "${logfile}" | tee -a "${logfile}"
     fi
 
