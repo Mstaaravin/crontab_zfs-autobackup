@@ -3,7 +3,7 @@
 # Copyright (c) 2024. All rights reserved.
 #
 # Name: script_zfs-autobackup.sh
-# Version: 1.0.8
+# Version: 1.0.9
 # Author: Mstaaravin
 # Description: ZFS backup script with automated snapshot management and logging
 #             This script performs ZFS backups using zfs-autobackup tool
@@ -50,11 +50,12 @@ SOURCE_POOLS=(
     "zlhome01"
 )
 
+
 # For tracking statistics
 declare -A BACKUP_STATS
 declare -A DATASETS_INFO
 declare -a CREATED_SNAPSHOTS
-declare -a DELETED_SNAPSHOTS
+
 
 # Logs messages to both syslog and stdout
 # Uses global TIMESTAMP for consistency
@@ -149,35 +150,21 @@ collect_dataset_info() {
 parse_autobackup_output() {
     local logfile=$1
     
-    # Get counts instead of trying to build arrays (which can be tricky in bash subshells)
+    # Get counts of created and deleted snapshots
     local created_count=$(grep -c "Creating snapshots.*-[0-9]\{14\}" "${logfile}" || echo "0")
     local deleted_count=$(grep -c "Destroying" "${logfile}" || echo "0")
     
     BACKUP_STATS["snapshots_created"]="${created_count}"
     BACKUP_STATS["snapshots_deleted"]="${deleted_count}"
     
-    # Also populate the arrays for detailed reporting
+    # Populate array for created snapshots (useful for statistics)
     while read -r line; do
         local snap_name=$(echo "${line}" | grep -o '[^ ]*-[0-9]\{14\}')
         CREATED_SNAPSHOTS+=("${snap_name}")
     done < <(grep "Creating snapshots.*-[0-9]\{14\}" "${logfile}" || true)
     
-    # Improved pattern matching for destroyed snapshots
-    # Example line: [Source] zlhome01/HOME.cmiranda@zlhome01-20250404085858: Destroying
-    while read -r line; do
-        # Extract the dataset@snapshot part using sed to remove the trailing colon
-        if [[ "$line" =~ \[Source\]\ ([^:]+): ]]; then
-            local dataset_snap="${BASH_REMATCH[1]}"
-            if [[ -n "${dataset_snap}" && "${dataset_snap}" == *"@"* ]]; then
-                DELETED_SNAPSHOTS+=("${dataset_snap}")
-                # Debug log
-                echo "DEBUG: Detected deleted snapshot: ${dataset_snap}" >> "${logfile}"
-            fi
-        fi
-    done < <(grep "Destroying" "${logfile}" || true)
-    
-    # Log stats
-    echo "DEBUG: Found ${#CREATED_SNAPSHOTS[@]} created and ${#DELETED_SNAPSHOTS[@]} deleted snapshots" >> "${logfile}"
+    # Log basic stats
+    echo "DEBUG: Found ${created_count} created and ${deleted_count} deleted snapshots" >> "${logfile}"
 }
 
 
@@ -200,25 +187,23 @@ draw_table_header() {
     local col2_width=$2
     local col3_width=$3
     local col4_width=$4
-    local col5_width=$5
     
-    printf "+%${col1_width}s+%${col2_width}s+%${col3_width}s+%${col4_width}s+%${col5_width}s+\n" \
+    printf "+%${col1_width}s+%${col2_width}s+%${col3_width}s+%${col4_width}s+\n" \
            "$(printf '%0.s-' $(seq 1 $col1_width))" \
            "$(printf '%0.s-' $(seq 1 $col2_width))" \
            "$(printf '%0.s-' $(seq 1 $col3_width))" \
-           "$(printf '%0.s-' $(seq 1 $col4_width))" \
-           "$(printf '%0.s-' $(seq 1 $col5_width))"
+           "$(printf '%0.s-' $(seq 1 $col4_width))"
            
-    printf "| %-$((col1_width-2))s | %-$((col2_width-2))s | %-$((col3_width-2))s | %-$((col4_width-2))s | %-$((col5_width-2))s |\n" \
-           "Dataset" "Total Snaps" "Last Snapshot" "Space Used" "Deleted Snapshots"
+    printf "| %-$((col1_width-2))s | %-$((col2_width-2))s | %-$((col3_width-2))s | %-$((col4_width-2))s |\n" \
+           "Dataset" "Total Snaps" "Last Snapshot" "Space Used"
            
-    printf "+%${col1_width}s+%${col2_width}s+%${col3_width}s+%${col4_width}s+%${col5_width}s+\n" \
+    printf "+%${col1_width}s+%${col2_width}s+%${col3_width}s+%${col4_width}s+\n" \
            "$(printf '%0.s-' $(seq 1 $col1_width))" \
            "$(printf '%0.s-' $(seq 1 $col2_width))" \
            "$(printf '%0.s-' $(seq 1 $col3_width))" \
-           "$(printf '%0.s-' $(seq 1 $col4_width))" \
-           "$(printf '%0.s-' $(seq 1 $col5_width))"
+           "$(printf '%0.s-' $(seq 1 $col4_width))"
 }
+
 
 # Draw a table row with appropriate column sizes
 draw_table_row() {
@@ -227,28 +212,10 @@ draw_table_row() {
     local col2_width=$3
     local col3_width=$4
     local col4_width=$5
-    local col5_width=$6
     
     local snaps="${DATASETS_INFO["${dataset},snaps"]}"
     local last_snap="${DATASETS_INFO["${dataset},last_snap"]}"
     local space="${DATASETS_INFO["${dataset},space"]}"
-    
-    # Find deleted snapshots for this dataset
-    local deleted=""
-    for del_snap in "${DELETED_SNAPSHOTS[@]}"; do
-        if [[ "${del_snap}" == "${dataset}@"* ]]; then
-            if [ -z "${deleted}" ]; then
-                deleted=$(echo "${del_snap}" | cut -d'@' -f2)
-            else
-                deleted="${deleted}, ..."
-                break
-            fi
-        fi
-    done
-    
-    if [ -z "${deleted}" ]; then
-        deleted="-"
-    fi
     
     # Truncate dataset name if too long
     local displayed_dataset="${dataset}"
@@ -261,14 +228,10 @@ draw_table_row() {
         last_snap="${last_snap:0:$((col3_width-7))}..."
     fi
     
-    # Truncate deleted snapshot name if too long
-    if [ ${#deleted} -gt $((col5_width-4)) ]; then
-        deleted="${deleted:0:$((col5_width-7))}..."
-    fi
-    
-    printf "| %-$((col1_width-2))s | %-$((col2_width-2))s | %-$((col3_width-2))s | %-$((col4_width-2))s | %-$((col5_width-2))s |\n" \
-           "${displayed_dataset}" "${snaps}" "${last_snap}" "${space}" "${deleted}"
+    printf "| %-$((col1_width-2))s | %-$((col2_width-2))s | %-$((col3_width-2))s | %-$((col4_width-2))s |\n" \
+           "${displayed_dataset}" "${snaps}" "${last_snap}" "${space}"
 }
+
 
 # Draw a simple statistics table
 draw_stats_table() {
@@ -310,7 +273,6 @@ generate_summary_report() {
     local col2_width=16  # Total Snaps
     local col3_width=32  # Last Snapshot
     local col4_width=15  # Space Used
-    local col5_width=25  # Deleted Snapshots
     
     # Print summary header
     echo
@@ -322,24 +284,20 @@ generate_summary_report() {
     # Print dataset summary table if backup was not skipped
     if [ "${status}" != "✗ SKIPPED (Recent snapshot exists)" ]; then
         echo "DATASETS SUMMARY:"
-        draw_table_header ${col1_width} ${col2_width} ${col3_width} ${col4_width} ${col5_width}
+        draw_table_header ${col1_width} ${col2_width} ${col3_width} ${col4_width}
         
         # List all datasets
         for dataset in $(zfs list -r -o name -H "${pool}"); do
-            draw_table_row "${dataset}" ${col1_width} ${col2_width} ${col3_width} ${col4_width} ${col5_width}
+            draw_table_row "${dataset}" ${col1_width} ${col2_width} ${col3_width} ${col4_width}
         done
         
-        printf "+%${col1_width}s+%${col2_width}s+%${col3_width}s+%${col4_width}s+%${col5_width}s+\n" \
+        printf "+%${col1_width}s+%${col2_width}s+%${col3_width}s+%${col4_width}s+\n" \
                "$(printf '%0.s-' $(seq 1 $col1_width))" \
                "$(printf '%0.s-' $(seq 1 $col2_width))" \
                "$(printf '%0.s-' $(seq 1 $col3_width))" \
-               "$(printf '%0.s-' $(seq 1 $col4_width))" \
-               "$(printf '%0.s-' $(seq 1 $col5_width))"
+               "$(printf '%0.s-' $(seq 1 $col4_width))"
     else
-        # If backup was skipped, show the recent snapshot information
-        echo "SKIPPED DUE TO RECENT SNAPSHOT:"
-        echo "  Recent snapshot: ${BACKUP_STATS["recent_snapshot"]}"
-        echo "  Created at: ${BACKUP_STATS["recent_snapshot_time"]}"
+        # ...código para cuando se omite el backup sin cambios...
     fi
     
     # Draw statistics table
