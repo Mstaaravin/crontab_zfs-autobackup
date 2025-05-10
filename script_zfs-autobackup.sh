@@ -3,7 +3,7 @@
 # Copyright (c) 2024. All rights reserved.
 #
 # Name: script_zfs-autobackup.sh
-# Version: 1.0.7
+# Version: 1.0.8
 # Author: Mstaaravin
 # Description: ZFS backup script with automated snapshot management and logging
 #             This script performs ZFS backups using zfs-autobackup tool
@@ -144,6 +144,7 @@ collect_dataset_info() {
     done
 }
 
+
 # Parse the output of zfs-autobackup for created and deleted snapshots
 parse_autobackup_output() {
     local logfile=$1
@@ -161,11 +162,24 @@ parse_autobackup_output() {
         CREATED_SNAPSHOTS+=("${snap_name}")
     done < <(grep "Creating snapshots.*-[0-9]\{14\}" "${logfile}" || true)
     
+    # Improved pattern matching for destroyed snapshots
+    # Example line: [Source] zlhome01/HOME.cmiranda@zlhome01-20250404085858: Destroying
     while read -r line; do
-        local dataset_snap=$(echo "${line}" | awk '{print $2}')
-        DELETED_SNAPSHOTS+=("${dataset_snap}")
+        # Extract the dataset@snapshot part using sed to remove the trailing colon
+        if [[ "$line" =~ \[Source\]\ ([^:]+): ]]; then
+            local dataset_snap="${BASH_REMATCH[1]}"
+            if [[ -n "${dataset_snap}" && "${dataset_snap}" == *"@"* ]]; then
+                DELETED_SNAPSHOTS+=("${dataset_snap}")
+                # Debug log
+                echo "DEBUG: Detected deleted snapshot: ${dataset_snap}" >> "${logfile}"
+            fi
+        fi
     done < <(grep "Destroying" "${logfile}" || true)
+    
+    # Log stats
+    echo "DEBUG: Found ${#CREATED_SNAPSHOTS[@]} created and ${#DELETED_SNAPSHOTS[@]} deleted snapshots" >> "${logfile}"
 }
+
 
 # Format time duration from seconds to a human readable format
 format_duration() {
