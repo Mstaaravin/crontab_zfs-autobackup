@@ -3,7 +3,7 @@
 # Copyright (c) 2024. All rights reserved.
 #
 # Name: script_zfs-autobackup.sh
-# Version: 1.0.9
+# Version: 1.0.10
 # Author: Mstaaravin
 # Description: ZFS backup script with automated snapshot management and logging
 #             This script performs ZFS backups using zfs-autobackup tool
@@ -55,6 +55,11 @@ SOURCE_POOLS=(
 declare -A BACKUP_STATS
 declare -A DATASETS_INFO
 declare -a CREATED_SNAPSHOTS
+
+# For snapshot type classification and tracking
+declare -A SNAPSHOT_TYPES     # Stores the type of each snapshot (monthly, weekly, daily)
+declare -A SNAPSHOT_COUNTS    # Counts of snapshots by dataset and type
+declare -A MONTHLY_DISTRIBUTION # Counters by month and type
 
 
 # Logs messages to both syslog and stdout
@@ -146,6 +151,78 @@ collect_dataset_info() {
 }
 
 
+# Function to categorize snapshots by type (monthly, weekly, daily)
+categorize_snapshots() {
+    local pool=$1
+    local current_date=$(date +%Y%m%d)
+    local one_week_ago=$(date -d "7 days ago" +%Y%m%d)
+    local one_month_ago=$(date -d "30 days ago" +%Y%m%d)
+    
+    # Initialize monthly counters
+    local current_month=$(date +%Y-%m)
+    for i in {0..5}; do
+        local month_key=$(date -d "$current_month-01 -$i month" +%Y-%m)
+        MONTHLY_DISTRIBUTION["${month_key},monthly"]=0
+        MONTHLY_DISTRIBUTION["${month_key},weekly"]=0
+        MONTHLY_DISTRIBUTION["${month_key},daily"]=0
+    done
+    
+    # Process all datasets in the pool
+    for dataset in $(zfs list -r -o name -H "${pool}"); do
+        local monthly_count=0
+        local weekly_count=0
+        local daily_count=0
+        
+        # Get all snapshots for this dataset
+        zfs list -t snapshot -o name,creation -Hp "${dataset}" 2>/dev/null | 
+        while read -r snapshot creation; do
+            # Extract snapshot name and date
+            local snap_name=$(echo "$snapshot" | cut -d'@' -f2)
+            
+            # Skip special snapshots (without date format)
+            if [[ ! "$snap_name" =~ ^${pool}-[0-9]{14}$ ]]; then
+                continue
+            fi
+            
+            # Extract date in YYYYMMDD format
+            local snap_date=$(echo "$snap_name" | grep -o "${pool}-[0-9]\{8\}" | cut -d'-' -f2)
+            local snap_month=$(echo "$snap_date" | cut -c1-6 | sed 's/\(.\{4\}\)\(.\{2\}\)/\1-\2/')
+            
+            # Determine type based on patterns and dates
+            local snap_type
+            if [[ "$snap_date" -lt "$one_month_ago" && 
+                  "$snap_date" =~ [0-9]{6}(0[1-9]|1[0-5]) ]]; then
+                # Monthly snapshot (approx. mid-month and older than one month)
+                snap_type="monthly"
+                ((monthly_count++))
+            elif [[ "$snap_date" -lt "$one_week_ago" && 
+                   "$snap_date" -ge "$one_month_ago" ]]; then
+                # Weekly snapshot (between one week and one month old)
+                snap_type="weekly"
+                ((weekly_count++))
+            else
+                # Daily snapshot (less than one week old)
+                snap_type="daily"
+                ((daily_count++))
+            fi
+            
+            # Save type for this snapshot
+            SNAPSHOT_TYPES["$snapshot"]="$snap_type"
+            
+            # Increment monthly count
+            if [[ -n "$snap_month" ]]; then
+                MONTHLY_DISTRIBUTION["${snap_month},${snap_type}"]=$((MONTHLY_DISTRIBUTION["${snap_month},${snap_type}"] + 1))
+            fi
+        done
+        
+        # Save counts for this dataset
+        SNAPSHOT_COUNTS["${dataset},monthly"]=$monthly_count
+        SNAPSHOT_COUNTS["${dataset},weekly"]=$weekly_count
+        SNAPSHOT_COUNTS["${dataset},daily"]=$daily_count
+    done
+}
+
+
 # Parse the output of zfs-autobackup for created and deleted snapshots
 parse_autobackup_output() {
     local logfile=$1
@@ -214,8 +291,14 @@ draw_table_row() {
     local col4_width=$5
     
     local snaps="${DATASETS_INFO["${dataset},snaps"]}"
+    local monthly="${SNAPSHOT_COUNTS["${dataset},monthly"]:-0}"
+    local weekly="${SNAPSHOT_COUNTS["${dataset},weekly"]:-0}"
+    local daily="${SNAPSHOT_COUNTS["${dataset},daily"]:-0}"
     local last_snap="${DATASETS_INFO["${dataset},last_snap"]}"
     local space="${DATASETS_INFO["${dataset},space"]}"
+    
+    # Format snapshot count with breakdown
+    local snap_display="${snaps} (${monthly}M,${weekly}W,${daily}D)"
     
     # Truncate dataset name if too long
     local displayed_dataset="${dataset}"
@@ -229,7 +312,7 @@ draw_table_row() {
     fi
     
     printf "| %-$((col1_width-2))s | %-$((col2_width-2))s | %-$((col3_width-2))s | %-$((col4_width-2))s |\n" \
-           "${displayed_dataset}" "${snaps}" "${last_snap}" "${space}"
+           "${displayed_dataset}" "${snap_display}" "${last_snap}" "${space}"
 }
 
 
@@ -262,7 +345,13 @@ generate_summary_report() {
     
     # Update dataset information
     collect_dataset_info "${pool}"
-    
+
+    # Update dataset information
+    collect_dataset_info "${pool}"
+
+    # Categorize snapshots
+    categorize_snapshots "${pool}"
+
     # If this was a successful backup, parse the log for additional information
     if [ "${status}" = "COMPLETED" ]; then
         parse_autobackup_output "${logfile}"
