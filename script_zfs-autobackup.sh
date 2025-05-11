@@ -159,23 +159,101 @@ categorize_snapshots() {
     # Debug message at start
     echo "DEBUG: Starting categorize_snapshots for pool ${pool}" >> "${log_file}"
     
-    # Simple initialization for testing
-    local datasets
+    # Define date thresholds
+    local current_date=$(date +%Y%m%d)
+    local one_week_ago=$(date -d "7 days ago" +%Y%m%d)
+    local one_month_ago=$(date -d "30 days ago" +%Y%m%d)
     
-    # Just set some default values for testing
-    datasets=$(zfs list -r -o name -H "${pool}" 2>/dev/null)
+    echo "DEBUG: Current date: ${current_date}, one week ago: ${one_week_ago}, one month ago: ${one_month_ago}" >> "${log_file}"
+    
+    # Initialize monthly distribution counters
+    local current_month=$(date +%Y-%m)
+    for i in {0..5}; do
+        local month_key=$(date -d "$current_month-01 -$i month" +%Y-%m)
+        MONTHLY_DISTRIBUTION["${month_key},monthly"]=0
+        MONTHLY_DISTRIBUTION["${month_key},weekly"]=0
+        MONTHLY_DISTRIBUTION["${month_key},daily"]=0
+        echo "DEBUG: Initialized month ${month_key}" >> "${log_file}"
+    done
+    
+    # Process all datasets in the pool
+    local datasets=$(zfs list -r -o name -H "${pool}" 2>/dev/null)
     
     for dataset in ${datasets}; do
         echo "DEBUG: Processing dataset ${dataset}" >> "${log_file}"
         
-        # Set dummy values for testing
-        SNAPSHOT_COUNTS["${dataset},monthly"]=1
-        SNAPSHOT_COUNTS["${dataset},weekly"]=2
-        SNAPSHOT_COUNTS["${dataset},daily"]=3
+        # Initialize counts
+        local monthly_count=0
+        local weekly_count=0
+        local daily_count=0
+        
+        # Get all snapshots for this dataset using process substitution instead of pipe
+        # Process substitution avoids the subshell issue
+        while read -r snapshot creation; do
+            # Skip empty lines
+            if [ -z "${snapshot}" ]; then
+                continue
+            fi
+            
+            # Extract snapshot name (after @)
+            local snap_name=$(echo "${snapshot}" | cut -d'@' -f2)
+            echo "DEBUG: Processing snapshot: ${snap_name}, creation: $(date -d @${creation} '+%Y-%m-%d')" >> "${log_file}"
+            
+            # Skip non-standard format snapshots
+            if [[ ! "${snap_name}" =~ ^${pool}-[0-9]{14}$ ]]; then
+                echo "DEBUG: Skipping snapshot with non-standard name: ${snap_name}" >> "${log_file}"
+                continue
+            fi
+            
+            # Get snapshot date from creation time (more reliable than name)
+            local snap_date=$(date -d @${creation} +%Y%m%d)
+            local snap_month=$(date -d @${creation} +%Y-%m)
+            
+            echo "DEBUG: Snapshot date: ${snap_date}, month: ${snap_month}" >> "${log_file}"
+            
+            # Categorize snapshot
+            if [[ ${snap_date} -lt ${one_month_ago} ]]; then
+                echo "DEBUG: Classified as monthly" >> "${log_file}"
+                monthly_count=$((monthly_count + 1))
+                
+                # Update monthly distribution
+                MONTHLY_DISTRIBUTION["${snap_month},monthly"]=$((MONTHLY_DISTRIBUTION["${snap_month},monthly"] + 1))
+                echo "DEBUG: Updated ${snap_month},monthly to ${MONTHLY_DISTRIBUTION["${snap_month},monthly"]}" >> "${log_file}"
+            elif [[ ${snap_date} -lt ${one_week_ago} ]]; then
+                echo "DEBUG: Classified as weekly" >> "${log_file}"
+                weekly_count=$((weekly_count + 1))
+                
+                # Update weekly distribution
+                MONTHLY_DISTRIBUTION["${snap_month},weekly"]=$((MONTHLY_DISTRIBUTION["${snap_month},weekly"] + 1))
+                echo "DEBUG: Updated ${snap_month},weekly to ${MONTHLY_DISTRIBUTION["${snap_month},weekly"]}" >> "${log_file}"
+            else
+                echo "DEBUG: Classified as daily" >> "${log_file}"
+                daily_count=$((daily_count + 1))
+                
+                # Update daily distribution
+                MONTHLY_DISTRIBUTION["${snap_month},daily"]=$((MONTHLY_DISTRIBUTION["${snap_month},daily"] + 1))
+                echo "DEBUG: Updated ${snap_month},daily to ${MONTHLY_DISTRIBUTION["${snap_month},daily"]}" >> "${log_file}"
+            fi
+            
+            echo "DEBUG: Current counts: monthly=${monthly_count}, weekly=${weekly_count}, daily=${daily_count}" >> "${log_file}"
+        done < <(zfs list -t snapshot -o name,creation -Hp "${dataset}" 2>/dev/null)
+        
+        # Store counts for this dataset
+        SNAPSHOT_COUNTS["${dataset},monthly"]=${monthly_count}
+        SNAPSHOT_COUNTS["${dataset},weekly"]=${weekly_count}
+        SNAPSHOT_COUNTS["${dataset},daily"]=${daily_count}
+        
+        echo "DEBUG: Final counts for ${dataset}: monthly=${monthly_count}, weekly=${weekly_count}, daily=${daily_count}" >> "${log_file}"
     done
     
     # Debug message at end
     echo "DEBUG: Finished categorize_snapshots for pool ${pool}" >> "${log_file}"
+    echo "DEBUG: Monthly distribution state:" >> "${log_file}"
+    for i in {0..5}; do
+        local month_key=$(date -d "$current_month-01 -$i month" +%Y-%m)
+        echo "DEBUG: Month ${month_key}: monthly=${MONTHLY_DISTRIBUTION["${month_key},monthly"]}, weekly=${MONTHLY_DISTRIBUTION["${month_key},weekly"]}, daily=${MONTHLY_DISTRIBUTION["${month_key},daily"]}" >> "${log_file}"
+    done
+    
     return 0
 }
 
@@ -348,22 +426,6 @@ draw_table_row() {
 }
 
 
-# Draw a simple statistics table
-#draw_stats_table() {
-#    echo
-#    echo "STATISTICS:"
-#    printf "+%-24s+%-15s+\n" "$(printf '%0.s-' $(seq 1 24))" "$(printf '%0.s-' $(seq 1 15))"
-#    printf "| %-22s | %-13s |\n" "Metric" "Value"
-#    printf "+%-24s+%-15s+\n" "$(printf '%0.s-' $(seq 1 24))" "$(printf '%0.s-' $(seq 1 15))"
-#    
-#    printf "| %-22s | %-13s |\n" "Total Datasets" "${BACKUP_STATS["total_datasets"]}"
-#    printf "| %-22s | %-13s |\n" "Snapshots Created" "${BACKUP_STATS["snapshots_created"]}"
-#    printf "| %-22s | %-13s |\n" "Snapshots Deleted" "${BACKUP_STATS["snapshots_deleted"]}"
-#    printf "| %-22s | %-13s |\n" "Operation Duration" "${BACKUP_STATS["duration"]}"
-#    
-#    printf "+%-24s+%-15s+\n" "$(printf '%0.s-' $(seq 1 24))" "$(printf '%0.s-' $(seq 1 15))"
-#}
-# Draw a simple statistics table with enhanced information
 draw_stats_table() {
     local pool=$1
     local logfile=$2  # Pass logfile as parameter
