@@ -28,7 +28,8 @@ set -e
 # - Direct IP address (e.g., "192.168.1.100")
 # Requires SSH key authentication and ZFS permissions on remote host (normally using root)
 REMOTE_HOST="zima01"
-REMOTE_POOL_BASEPATH="WD181KFGX/BACKUPS"
+# REMOTE_POOL_BASEPATH="WD181KFGX/BACKUPS"
+REMOTE_POOL_BASEPATH="usbzfs02/BACKUPS"
 
 
 # Basic logging configuration and date formats
@@ -47,7 +48,7 @@ export PATH="/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:
 
 # Source pools to backup if none specified
 SOURCE_POOLS=(
-    "zlhome01"
+    "usbzfs01"
 )
 
 
@@ -249,6 +250,7 @@ draw_stats_table() {
     printf "+%-24s+%-15s+\n" "$(printf '%0.s-' $(seq 1 24))" "$(printf '%0.s-' $(seq 1 15))"
 }
 
+
 # Generate a detailed summary report
 generate_summary_report() {
     local pool=$1
@@ -297,12 +299,16 @@ generate_summary_report() {
                "$(printf '%0.s-' $(seq 1 $col3_width))" \
                "$(printf '%0.s-' $(seq 1 $col4_width))"
     else
-        # ...código para cuando se omite el backup sin cambios...
+        # If backup was skipped, show the recent snapshot information
+        echo "SKIPPED DUE TO RECENT SNAPSHOT:"
+        echo "  Recent snapshot: ${BACKUP_STATS["recent_snapshot"]}"
+        echo "  Created at: ${BACKUP_STATS["recent_snapshot_time"]}"
     fi
     
     # Draw statistics table
     draw_stats_table
 }
+
 
 # Main backup function for a single pool
 # Handles both backup execution and logging
