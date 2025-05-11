@@ -28,7 +28,8 @@ set -e
 # - Direct IP address (e.g., "192.168.1.100")
 # Requires SSH key authentication and ZFS permissions on remote host (normally using root)
 REMOTE_HOST="zima01"
-REMOTE_POOL_BASEPATH="WD181KFGX/BACKUPS"
+# REMOTE_POOL_BASEPATH="WD181KFGX/BACKUPS"
+REMOTE_POOL_BASEPATH="usbzfs02/BACKUPS"
 
 
 # Basic logging configuration and date formats
@@ -47,7 +48,7 @@ export PATH="/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:
 
 # Source pools to backup if none specified
 SOURCE_POOLS=(
-    "zlhome01"
+    "usbzfs01"
 )
 
 
@@ -60,7 +61,6 @@ declare -a CREATED_SNAPSHOTS
 declare -A SNAPSHOT_TYPES     # Stores the type of each snapshot (monthly, weekly, daily)
 declare -A SNAPSHOT_COUNTS    # Counts of snapshots by dataset and type
 declare -A MONTHLY_DISTRIBUTION # Counters by month and type
-
 
 # Logs messages to both syslog and stdout
 # Uses global TIMESTAMP for consistency
@@ -154,72 +154,29 @@ collect_dataset_info() {
 # Function to categorize snapshots by type (monthly, weekly, daily)
 categorize_snapshots() {
     local pool=$1
-    local current_date=$(date +%Y%m%d)
-    local one_week_ago=$(date -d "7 days ago" +%Y%m%d)
-    local one_month_ago=$(date -d "30 days ago" +%Y%m%d)
+    local log_file=$2  # Pass logfile as parameter
     
-    # Initialize monthly counters
-    local current_month=$(date +%Y-%m)
-    for i in {0..5}; do
-        local month_key=$(date -d "$current_month-01 -$i month" +%Y-%m)
-        MONTHLY_DISTRIBUTION["${month_key},monthly"]=0
-        MONTHLY_DISTRIBUTION["${month_key},weekly"]=0
-        MONTHLY_DISTRIBUTION["${month_key},daily"]=0
+    # Debug message at start
+    echo "DEBUG: Starting categorize_snapshots for pool ${pool}" >> "${log_file}"
+    
+    # Simple initialization for testing
+    local datasets
+    
+    # Just set some default values for testing
+    datasets=$(zfs list -r -o name -H "${pool}" 2>/dev/null)
+    
+    for dataset in ${datasets}; do
+        echo "DEBUG: Processing dataset ${dataset}" >> "${log_file}"
+        
+        # Set dummy values for testing
+        SNAPSHOT_COUNTS["${dataset},monthly"]=1
+        SNAPSHOT_COUNTS["${dataset},weekly"]=2
+        SNAPSHOT_COUNTS["${dataset},daily"]=3
     done
     
-    # Process all datasets in the pool
-    for dataset in $(zfs list -r -o name -H "${pool}"); do
-        local monthly_count=0
-        local weekly_count=0
-        local daily_count=0
-        
-        # Get all snapshots for this dataset
-        zfs list -t snapshot -o name,creation -Hp "${dataset}" 2>/dev/null | 
-        while read -r snapshot creation; do
-            # Extract snapshot name and date
-            local snap_name=$(echo "$snapshot" | cut -d'@' -f2)
-            
-            # Skip special snapshots (without date format)
-            if [[ ! "$snap_name" =~ ^${pool}-[0-9]{14}$ ]]; then
-                continue
-            fi
-            
-            # Extract date in YYYYMMDD format
-            local snap_date=$(echo "$snap_name" | grep -o "${pool}-[0-9]\{8\}" | cut -d'-' -f2)
-            local snap_month=$(echo "$snap_date" | cut -c1-6 | sed 's/\(.\{4\}\)\(.\{2\}\)/\1-\2/')
-            
-            # Determine type based on patterns and dates
-            local snap_type
-            if [[ "$snap_date" -lt "$one_month_ago" && 
-                  "$snap_date" =~ [0-9]{6}(0[1-9]|1[0-5]) ]]; then
-                # Monthly snapshot (approx. mid-month and older than one month)
-                snap_type="monthly"
-                ((monthly_count++))
-            elif [[ "$snap_date" -lt "$one_week_ago" && 
-                   "$snap_date" -ge "$one_month_ago" ]]; then
-                # Weekly snapshot (between one week and one month old)
-                snap_type="weekly"
-                ((weekly_count++))
-            else
-                # Daily snapshot (less than one week old)
-                snap_type="daily"
-                ((daily_count++))
-            fi
-            
-            # Save type for this snapshot
-            SNAPSHOT_TYPES["$snapshot"]="$snap_type"
-            
-            # Increment monthly count
-            if [[ -n "$snap_month" ]]; then
-                MONTHLY_DISTRIBUTION["${snap_month},${snap_type}"]=$((MONTHLY_DISTRIBUTION["${snap_month},${snap_type}"] + 1))
-            fi
-        done
-        
-        # Save counts for this dataset
-        SNAPSHOT_COUNTS["${dataset},monthly"]=$monthly_count
-        SNAPSHOT_COUNTS["${dataset},weekly"]=$weekly_count
-        SNAPSHOT_COUNTS["${dataset},daily"]=$daily_count
-    done
+    # Debug message at end
+    echo "DEBUG: Finished categorize_snapshots for pool ${pool}" >> "${log_file}"
+    return 0
 }
 
 
@@ -258,6 +215,77 @@ format_duration() {
     fi
 }
 
+
+# Function to display snapshot distribution by month
+draw_monthly_distribution() {
+    local logfile=$1  # Pass logfile as parameter
+    
+    echo "DEBUG: Drawing monthly distribution table" >> "${logfile}"
+    
+    echo
+    echo "SNAPSHOT DISTRIBUTION:"
+    printf "+%-20s+%-10s+%-10s+%-10s+\n" \
+           "$(printf '%0.s-' $(seq 1 20))" \
+           "$(printf '%0.s-' $(seq 1 10))" \
+           "$(printf '%0.s-' $(seq 1 10))" \
+           "$(printf '%0.s-' $(seq 1 10))"
+    
+    printf "| %-18s | %-8s | %-8s | %-8s |\n" \
+           "Date Range" "Monthly" "Weekly" "Daily"
+    
+    printf "+%-20s+%-10s+%-10s+%-10s+\n" \
+           "$(printf '%0.s-' $(seq 1 20))" \
+           "$(printf '%0.s-' $(seq 1 10))" \
+           "$(printf '%0.s-' $(seq 1 10))" \
+           "$(printf '%0.s-' $(seq 1 10))"
+    
+    # Show months, from most recent to oldest
+    local current_month=$(date +%Y-%m)
+    for i in {0..5}; do
+        local month_key=$(date -d "$current_month-01 -$i month" +%Y-%m)
+        local month_display=$(date -d "$month_key-01" +"%Y-%m")
+        
+        # Add "(Current)" to current month
+        if [ $i -eq 0 ]; then
+            month_display="$month_display (Current)"
+        fi
+        
+        # Get values from MONTHLY_DISTRIBUTION or use 0 if not set
+        local monthly="${MONTHLY_DISTRIBUTION["${month_key},monthly"]:-0}"
+        local weekly="${MONTHLY_DISTRIBUTION["${month_key},weekly"]:-0}"
+        local daily="${MONTHLY_DISTRIBUTION["${month_key},daily"]:-0}"
+        
+        echo "DEBUG: Month ${month_key}: monthly=${monthly}, weekly=${weekly}, daily=${daily}" >> "${logfile}"
+        
+        printf "| %-18s | %-8s | %-8s | %-8s |\n" \
+               "$month_display" "$monthly" "$weekly" "$daily"
+    done
+    
+    printf "+%-20s+%-10s+%-10s+%-10s+\n" \
+           "$(printf '%0.s-' $(seq 1 20))" \
+           "$(printf '%0.s-' $(seq 1 10))" \
+           "$(printf '%0.s-' $(seq 1 10))" \
+           "$(printf '%0.s-' $(seq 1 10))"
+}
+
+
+# Function to display the configured retention policy
+draw_retention_policy() {
+    local logfile=$1  # Pass logfile as parameter
+    
+    echo "DEBUG: Drawing retention policy information" >> "${logfile}"
+    
+    echo
+    echo "RETENTION POLICY:"
+    echo "- Daily snapshots: Keep last 10, retain for 1 week"
+    echo "- Weekly snapshots: Keep every 1 week, retain for 1 month"
+    echo "- Monthly snapshots: Keep every 1 month, retain for 1 year"
+}
+
+
+
+
+
 # Draw a table header with appropriate column sizes
 draw_table_header() {
     local col1_width=$1
@@ -289,6 +317,7 @@ draw_table_row() {
     local col2_width=$3
     local col3_width=$4
     local col4_width=$5
+    local log_file=$6  # Add logfile parameter
     
     local snaps="${DATASETS_INFO["${dataset},snaps"]}"
     local monthly="${SNAPSHOT_COUNTS["${dataset},monthly"]:-0}"
@@ -296,6 +325,9 @@ draw_table_row() {
     local daily="${SNAPSHOT_COUNTS["${dataset},daily"]:-0}"
     local last_snap="${DATASETS_INFO["${dataset},last_snap"]}"
     local space="${DATASETS_INFO["${dataset},space"]}"
+    
+    # Debug the snapshot count variables
+    echo "DEBUG: draw_table_row for ${dataset}: snaps=${snaps}, monthly=${monthly}, weekly=${weekly}, daily=${daily}" >> "${log_file}"
     
     # Format snapshot count with breakdown
     local snap_display="${snaps} (${monthly}M,${weekly}W,${daily}D)"
@@ -317,7 +349,27 @@ draw_table_row() {
 
 
 # Draw a simple statistics table
+#draw_stats_table() {
+#    echo
+#    echo "STATISTICS:"
+#    printf "+%-24s+%-15s+\n" "$(printf '%0.s-' $(seq 1 24))" "$(printf '%0.s-' $(seq 1 15))"
+#    printf "| %-22s | %-13s |\n" "Metric" "Value"
+#    printf "+%-24s+%-15s+\n" "$(printf '%0.s-' $(seq 1 24))" "$(printf '%0.s-' $(seq 1 15))"
+#    
+#    printf "| %-22s | %-13s |\n" "Total Datasets" "${BACKUP_STATS["total_datasets"]}"
+#    printf "| %-22s | %-13s |\n" "Snapshots Created" "${BACKUP_STATS["snapshots_created"]}"
+#    printf "| %-22s | %-13s |\n" "Snapshots Deleted" "${BACKUP_STATS["snapshots_deleted"]}"
+#    printf "| %-22s | %-13s |\n" "Operation Duration" "${BACKUP_STATS["duration"]}"
+#    
+#    printf "+%-24s+%-15s+\n" "$(printf '%0.s-' $(seq 1 24))" "$(printf '%0.s-' $(seq 1 15))"
+#}
+# Draw a simple statistics table with enhanced information
 draw_stats_table() {
+    local pool=$1
+    local logfile=$2  # Pass logfile as parameter
+    
+    echo "DEBUG: Drawing statistics table" >> "${logfile}"
+    
     echo
     echo "STATISTICS:"
     printf "+%-24s+%-15s+\n" "$(printf '%0.s-' $(seq 1 24))" "$(printf '%0.s-' $(seq 1 15))"
@@ -327,16 +379,38 @@ draw_stats_table() {
     printf "| %-22s | %-13s |\n" "Total Datasets" "${BACKUP_STATS["total_datasets"]}"
     printf "| %-22s | %-13s |\n" "Snapshots Created" "${BACKUP_STATS["snapshots_created"]}"
     printf "| %-22s | %-13s |\n" "Snapshots Deleted" "${BACKUP_STATS["snapshots_deleted"]}"
+    
+    # Calculate totals by type
+    local total_monthly=0
+    local total_weekly=0
+    local total_daily=0
+    
+    for dataset in $(zfs list -r -o name -H "${pool}" 2>/dev/null); do
+        total_monthly=$((total_monthly + ${SNAPSHOT_COUNTS["${dataset},monthly"]:-0}))
+        total_weekly=$((total_weekly + ${SNAPSHOT_COUNTS["${dataset},weekly"]:-0}))
+        total_daily=$((total_daily + ${SNAPSHOT_COUNTS["${dataset},daily"]:-0}))
+    done
+    
+    echo "DEBUG: Total snapshots by type: monthly=${total_monthly}, weekly=${total_weekly}, daily=${total_daily}" >> "${logfile}"
+    
+    printf "| %-22s | %-13s |\n" "Monthly Snapshots" "$total_monthly"
+    printf "| %-22s | %-13s |\n" "Weekly Snapshots" "$total_weekly"
+    printf "| %-22s | %-13s |\n" "Daily Snapshots" "$total_daily"
     printf "| %-22s | %-13s |\n" "Operation Duration" "${BACKUP_STATS["duration"]}"
     
     printf "+%-24s+%-15s+\n" "$(printf '%0.s-' $(seq 1 24))" "$(printf '%0.s-' $(seq 1 15))"
 }
+
+
 
 # Generate a detailed summary report
 generate_summary_report() {
     local pool=$1
     local status=$2
     local logfile=$3
+    
+    # Debug message
+    echo "DEBUG: Starting generate_summary_report for pool ${pool} with status ${status}" >> "${logfile}"
     
     # Calculate duration
     local end_time=$(date +%s)
@@ -345,17 +419,24 @@ generate_summary_report() {
     
     # Update dataset information
     collect_dataset_info "${pool}"
-
-    # Update dataset information
-    collect_dataset_info "${pool}"
-
-    # Categorize snapshots
-    categorize_snapshots "${pool}"
-
+    
+    # Debug before categorize_snapshots
+    echo "DEBUG: About to call categorize_snapshots(${pool})" >> "${logfile}"
+    
+    # Categorize snapshots - pass logfile as parameter
+    categorize_snapshots "${pool}" "${logfile}"
+    
+    # Debug after categorize_snapshots
+    echo "DEBUG: Finished calling categorize_snapshots" >> "${logfile}"
+    
     # If this was a successful backup, parse the log for additional information
     if [ "${status}" = "COMPLETED" ]; then
+        echo "DEBUG: Parsing autobackup output" >> "${logfile}"
         parse_autobackup_output "${logfile}"
     fi
+    
+    # Debug before printing summary
+    echo "DEBUG: About to print BACKUP SUMMARY" >> "${logfile}"
     
     # Define table column widths
     local col1_width=32  # Dataset
@@ -372,12 +453,14 @@ generate_summary_report() {
     
     # Print dataset summary table if backup was not skipped
     if [ "${status}" != "✗ SKIPPED (Recent snapshot exists)" ]; then
+        echo "DEBUG: Printing dataset summary table" >> "${logfile}"
         echo "DATASETS SUMMARY:"
         draw_table_header ${col1_width} ${col2_width} ${col3_width} ${col4_width}
         
         # List all datasets
         for dataset in $(zfs list -r -o name -H "${pool}"); do
-            draw_table_row "${dataset}" ${col1_width} ${col2_width} ${col3_width} ${col4_width}
+            echo "DEBUG: Drawing row for dataset ${dataset}" >> "${logfile}"
+            draw_table_row "${dataset}" ${col1_width} ${col2_width} ${col3_width} ${col4_width} "${logfile}"
         done
         
         printf "+%${col1_width}s+%${col2_width}s+%${col3_width}s+%${col4_width}s+\n" \
@@ -385,13 +468,26 @@ generate_summary_report() {
                "$(printf '%0.s-' $(seq 1 $col2_width))" \
                "$(printf '%0.s-' $(seq 1 $col3_width))" \
                "$(printf '%0.s-' $(seq 1 $col4_width))"
+               
+        # Add new reports (Phase 2)
+        draw_monthly_distribution "${logfile}"
+        draw_retention_policy "${logfile}"
     else
-        # ...código para cuando se omite el backup sin cambios...
+        # If backup was skipped, show the recent snapshot information
+        echo "DEBUG: Backup was skipped, showing recent snapshot info" >> "${logfile}"
+        echo "SKIPPED DUE TO RECENT SNAPSHOT:"
+        echo "  Recent snapshot: ${BACKUP_STATS["recent_snapshot"]}"
+        echo "  Created at: ${BACKUP_STATS["recent_snapshot_time"]}"
     fi
     
     # Draw statistics table
-    draw_stats_table
+    echo "DEBUG: Drawing statistics table" >> "${logfile}"
+    draw_stats_table "${pool}" "${logfile}"
+    
+    # Debug at end
+    echo "DEBUG: Finished generate_summary_report" >> "${logfile}"
 }
+
 
 # Main backup function for a single pool
 # Handles both backup execution and logging
