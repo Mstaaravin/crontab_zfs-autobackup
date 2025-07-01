@@ -3,7 +3,7 @@
 # Copyright (c) 2024. All rights reserved.
 #
 # Name: script_zfs-autobackup.sh
-# Version: 1.0.10
+# Version: 1.0.11
 # Author: Mstaaravin
 # Description: ZFS backup script with automated snapshot management and logging
 #             This script performs ZFS backups using zfs-autobackup tool
@@ -154,17 +154,18 @@ collect_dataset_info() {
 # Function to categorize snapshots by type (monthly, weekly, daily)
 categorize_snapshots() {
     local pool=$1
-    local log_file=$2  # Pass logfile as parameter
+    local log_file=$2
     
-    # Debug message at start
     echo "DEBUG: Starting categorize_snapshots for pool ${pool}" >> "${log_file}"
     
-    # Define date thresholds
-    local current_date=$(date +%Y%m%d)
-    local one_week_ago=$(date -d "7 days ago" +%Y%m%d)
-    local one_month_ago=$(date -d "30 days ago" +%Y%m%d)
+    # Define date thresholds using epoch timestamps for accurate comparison
+    local current_timestamp=$(date +%s)
+    local one_week_ago_timestamp=$((current_timestamp - 604800))    # 7 days * 24 * 60 * 60
+    local one_month_ago_timestamp=$((current_timestamp - 2592000))  # 30 days * 24 * 60 * 60
     
-    echo "DEBUG: Current date: ${current_date}, one week ago: ${one_week_ago}, one month ago: ${one_month_ago}" >> "${log_file}"
+    echo "DEBUG: Current timestamp: ${current_timestamp}" >> "${log_file}"
+    echo "DEBUG: One week ago timestamp: ${one_week_ago_timestamp} ($(date -d @${one_week_ago_timestamp} '+%Y-%m-%d'))" >> "${log_file}"
+    echo "DEBUG: One month ago timestamp: ${one_month_ago_timestamp} ($(date -d @${one_month_ago_timestamp} '+%Y-%m-%d'))" >> "${log_file}"
     
     # Initialize monthly distribution counters
     local current_month=$(date +%Y-%m)
@@ -175,6 +176,10 @@ categorize_snapshots() {
         MONTHLY_DISTRIBUTION["${month_key},daily"]=0
         echo "DEBUG: Initialized month ${month_key}" >> "${log_file}"
     done
+    
+    # Array to track processed timestamps to avoid double counting in monthly distribution
+    declare -A PROCESSED_TIMESTAMPS
+    echo "DEBUG: Initialized PROCESSED_TIMESTAMPS array for unique counting" >> "${log_file}"
     
     # Process all datasets in the pool
     local datasets=$(zfs list -r -o name -H "${pool}" 2>/dev/null)
@@ -187,8 +192,7 @@ categorize_snapshots() {
         local weekly_count=0
         local daily_count=0
         
-        # Get all snapshots for this dataset using process substitution instead of pipe
-        # Process substitution avoids the subshell issue
+        # Get all snapshots for this dataset using process substitution
         while read -r snapshot creation; do
             # Skip empty lines
             if [ -z "${snapshot}" ]; then
@@ -197,42 +201,54 @@ categorize_snapshots() {
             
             # Extract snapshot name (after @)
             local snap_name=$(echo "${snapshot}" | cut -d'@' -f2)
-            echo "DEBUG: Processing snapshot: ${snap_name}, creation: $(date -d @${creation} '+%Y-%m-%d')" >> "${log_file}"
+            echo "DEBUG: Processing snapshot: ${snap_name}, creation: ${creation} ($(date -d @${creation} '+%Y-%m-%d %H:%M'))" >> "${log_file}"
             
-            # Skip non-standard format snapshots
-            if [[ ! "${snap_name}" =~ ^${pool}-[0-9]{14}$ ]]; then
-                echo "DEBUG: Skipping snapshot with non-standard name: ${snap_name}" >> "${log_file}"
+            # Skip snapshots that don't follow expected patterns
+            # Allow various snapshot naming conventions, not just pool-YYYYMMDDHHMMSS
+            if [[ ! "${snap_name}" =~ ^[a-zA-Z0-9_-]+-[0-9]{8} ]]; then
+                echo "DEBUG: Skipping snapshot with unexpected name format: ${snap_name}" >> "${log_file}"
                 continue
             fi
             
-            # Get snapshot date from creation time (more reliable than name)
-            local snap_date=$(date -d @${creation} +%Y%m%d)
+            # Get snapshot month for distribution tracking
             local snap_month=$(date -d @${creation} +%Y-%m)
             
-            echo "DEBUG: Snapshot date: ${snap_date}, month: ${snap_month}" >> "${log_file}"
+            echo "DEBUG: Snapshot month: ${snap_month}, creation timestamp: ${creation}" >> "${log_file}"
             
-            # Categorize snapshot
-            if [[ ${snap_date} -lt ${one_month_ago} ]]; then
-                echo "DEBUG: Classified as monthly" >> "${log_file}"
+            # Categorize snapshot based on creation timestamp
+            if [ ${creation} -lt ${one_month_ago_timestamp} ]; then
+                echo "DEBUG: Classified as monthly (${creation} < ${one_month_ago_timestamp})" >> "${log_file}"
                 monthly_count=$((monthly_count + 1))
-                
-                # Update monthly distribution
-                MONTHLY_DISTRIBUTION["${snap_month},monthly"]=$((MONTHLY_DISTRIBUTION["${snap_month},monthly"] + 1))
-                echo "DEBUG: Updated ${snap_month},monthly to ${MONTHLY_DISTRIBUTION["${snap_month},monthly"]}" >> "${log_file}"
-            elif [[ ${snap_date} -lt ${one_week_ago} ]]; then
-                echo "DEBUG: Classified as weekly" >> "${log_file}"
+                # Only count unique timestamps for monthly distribution
+                if [ -z "${PROCESSED_TIMESTAMPS[${creation}]}" ]; then
+                    MONTHLY_DISTRIBUTION["${snap_month},monthly"]=$((MONTHLY_DISTRIBUTION["${snap_month},monthly"] + 1))
+                    PROCESSED_TIMESTAMPS[${creation}]="monthly"
+                    echo "DEBUG: Updated ${snap_month},monthly to ${MONTHLY_DISTRIBUTION["${snap_month},monthly"]} (unique timestamp)" >> "${log_file}"
+                else
+                    echo "DEBUG: Skipping duplicate timestamp ${creation} for monthly distribution" >> "${log_file}"
+                fi
+            elif [ ${creation} -lt ${one_week_ago_timestamp} ]; then
+                echo "DEBUG: Classified as weekly (${creation} < ${one_week_ago_timestamp})" >> "${log_file}"
                 weekly_count=$((weekly_count + 1))
-                
-                # Update weekly distribution
-                MONTHLY_DISTRIBUTION["${snap_month},weekly"]=$((MONTHLY_DISTRIBUTION["${snap_month},weekly"] + 1))
-                echo "DEBUG: Updated ${snap_month},weekly to ${MONTHLY_DISTRIBUTION["${snap_month},weekly"]}" >> "${log_file}"
+                # Only count unique timestamps for monthly distribution
+                if [ -z "${PROCESSED_TIMESTAMPS[${creation}]}" ]; then
+                    MONTHLY_DISTRIBUTION["${snap_month},weekly"]=$((MONTHLY_DISTRIBUTION["${snap_month},weekly"] + 1))
+                    PROCESSED_TIMESTAMPS[${creation}]="weekly"
+                    echo "DEBUG: Updated ${snap_month},weekly to ${MONTHLY_DISTRIBUTION["${snap_month},weekly"]} (unique timestamp)" >> "${log_file}"
+                else
+                    echo "DEBUG: Skipping duplicate timestamp ${creation} for weekly distribution" >> "${log_file}"
+                fi
             else
-                echo "DEBUG: Classified as daily" >> "${log_file}"
+                echo "DEBUG: Classified as daily (${creation} >= ${one_week_ago_timestamp})" >> "${log_file}"
                 daily_count=$((daily_count + 1))
-                
-                # Update daily distribution
-                MONTHLY_DISTRIBUTION["${snap_month},daily"]=$((MONTHLY_DISTRIBUTION["${snap_month},daily"] + 1))
-                echo "DEBUG: Updated ${snap_month},daily to ${MONTHLY_DISTRIBUTION["${snap_month},daily"]}" >> "${log_file}"
+                # Only count unique timestamps for monthly distribution
+                if [ -z "${PROCESSED_TIMESTAMPS[${creation}]}" ]; then
+                    MONTHLY_DISTRIBUTION["${snap_month},daily"]=$((MONTHLY_DISTRIBUTION["${snap_month},daily"] + 1))
+                    PROCESSED_TIMESTAMPS[${creation}]="daily"
+                    echo "DEBUG: Updated ${snap_month},daily to ${MONTHLY_DISTRIBUTION["${snap_month},daily"]} (unique timestamp)" >> "${log_file}"
+                else
+                    echo "DEBUG: Skipping duplicate timestamp ${creation} for daily distribution" >> "${log_file}"
+                fi
             fi
             
             echo "DEBUG: Current counts: monthly=${monthly_count}, weekly=${weekly_count}, daily=${daily_count}" >> "${log_file}"
@@ -246,7 +262,6 @@ categorize_snapshots() {
         echo "DEBUG: Final counts for ${dataset}: monthly=${monthly_count}, weekly=${weekly_count}, daily=${daily_count}" >> "${log_file}"
     done
     
-    # Debug message at end
     echo "DEBUG: Finished categorize_snapshots for pool ${pool}" >> "${log_file}"
     echo "DEBUG: Monthly distribution state:" >> "${log_file}"
     for i in {0..5}; do
@@ -254,8 +269,13 @@ categorize_snapshots() {
         echo "DEBUG: Month ${month_key}: monthly=${MONTHLY_DISTRIBUTION["${month_key},monthly"]}, weekly=${MONTHLY_DISTRIBUTION["${month_key},weekly"]}, daily=${MONTHLY_DISTRIBUTION["${month_key},daily"]}" >> "${log_file}"
     done
     
+    # Debug: Show total unique timestamps processed
+    echo "DEBUG: Total unique timestamps processed: ${#PROCESSED_TIMESTAMPS[@]}" >> "${log_file}"
+    
     return 0
 }
+
+
 
 
 # Parse the output of zfs-autobackup for created and deleted snapshots
@@ -522,7 +542,8 @@ generate_summary_report() {
         # List all datasets
         for dataset in $(zfs list -r -o name -H "${pool}"); do
             echo "DEBUG: Drawing row for dataset ${dataset}" >> "${logfile}"
-            draw_table_row "${dataset}" ${col1_width} ${col2_width} ${col3_width} ${col4_width} "${logfile}"
+            # draw_table_row "${dataset}" ${col1_width} ${col2_width} ${col3_width} ${col4_width} "${logfile}"
+            draw_table_row "${dataset}" ${col1_width} ${col2_width} ${col3_width} ${col4_width} ${col4_width} "${logfile}"
         done
         
         printf "+%${col1_width}s+%${col2_width}s+%${col3_width}s+%${col4_width}s+\n" \
