@@ -3,7 +3,7 @@
 # Copyright (c) 2024. All rights reserved.
 #
 # Name: script_zfs-autobackup.sh
-# Version: 1.0.11
+# Version: 1.0.12
 # Author: Mstaaravin
 # Description: ZFS backup script with automated snapshot management and logging
 #             This script performs ZFS backups using zfs-autobackup tool
@@ -307,9 +307,11 @@ format_duration() {
     local remaining_seconds=$((seconds % 60))
     
     if [ "${minutes}" -eq 0 ]; then
-        echo "${seconds} seconds"
+        echo "${seconds}s"
+    elif [ "${minutes}" -eq 1 ]; then
+        echo "${minutes}m ${remaining_seconds}s"
     else
-        echo "${minutes} minutes, ${remaining_seconds} seconds"
+        echo "${minutes}m ${remaining_seconds}s"
     fi
 }
 
