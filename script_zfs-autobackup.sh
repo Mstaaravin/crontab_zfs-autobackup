@@ -3,7 +3,7 @@
 # Copyright (c) 2024. All rights reserved.
 #
 # Name: script_zfs-autobackup.sh
-# Version: 1.0.12
+# Version: 1.0.13
 # Author: Mstaaravin
 # Description: ZFS backup script with automated snapshot management and logging
 #             This script performs ZFS backups using zfs-autobackup tool
@@ -493,7 +493,7 @@ generate_summary_report() {
     local status=$2
     local logfile=$3
     
-    # Debug message
+    # Debug message - ONLY to logfile
     echo "DEBUG: Starting generate_summary_report for pool ${pool} with status ${status}" >> "${logfile}"
     
     # Calculate duration
@@ -504,13 +504,13 @@ generate_summary_report() {
     # Update dataset information
     collect_dataset_info "${pool}"
     
-    # Debug before categorize_snapshots
+    # Debug before categorize_snapshots - ONLY to logfile
     echo "DEBUG: About to call categorize_snapshots(${pool})" >> "${logfile}"
     
     # Categorize snapshots - pass logfile as parameter
     categorize_snapshots "${pool}" "${logfile}"
     
-    # Debug after categorize_snapshots
+    # Debug after categorize_snapshots - ONLY to logfile
     echo "DEBUG: Finished calling categorize_snapshots" >> "${logfile}"
     
     # If this was a successful backup, parse the log for additional information
@@ -519,7 +519,7 @@ generate_summary_report() {
         parse_autobackup_output "${logfile}"
     fi
     
-    # Debug before printing summary
+    # Debug before printing summary - ONLY to logfile
     echo "DEBUG: About to print BACKUP SUMMARY" >> "${logfile}"
     
     # Define table column widths
@@ -528,48 +528,58 @@ generate_summary_report() {
     local col3_width=32  # Last Snapshot
     local col4_width=15  # Space Used
     
-    # Print summary header
-    echo
-    echo "===== BACKUP SUMMARY ($(date '+%Y-%m-%d %H:%M:%S')) ====="
-    echo "POOL: ${pool}  |  Status: ${status}  |  Last backup: $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "Log file: ${logfile}"
-    echo
+    # Create a temporary file for the clean report
+    local temp_report=$(mktemp)
     
-    # Print dataset summary table if backup was not skipped
-    if [ "${status}" != "✗ SKIPPED (Recent snapshot exists)" ]; then
-        echo "DEBUG: Printing dataset summary table" >> "${logfile}"
-        echo "DATASETS SUMMARY:"
-        draw_table_header ${col1_width} ${col2_width} ${col3_width} ${col4_width}
+    # Generate the clean report to temp file
+    {
+        echo
+        echo "===== BACKUP SUMMARY ($(date '+%Y-%m-%d %H:%M:%S')) ====="
+        echo "POOL: ${pool}  |  Status: ${status}  |  Last backup: $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "Log file: ${logfile}"
+        echo
         
-        # List all datasets
-        for dataset in $(zfs list -r -o name -H "${pool}"); do
-            echo "DEBUG: Drawing row for dataset ${dataset}" >> "${logfile}"
-            # draw_table_row "${dataset}" ${col1_width} ${col2_width} ${col3_width} ${col4_width} "${logfile}"
-            draw_table_row "${dataset}" ${col1_width} ${col2_width} ${col3_width} ${col4_width} ${col4_width} "${logfile}"
-        done
+        # Print dataset summary table if backup was not skipped
+        if [ "${status}" != "✗ SKIPPED (Recent snapshot exists)" ]; then
+            echo "DATASETS SUMMARY:"
+            draw_table_header ${col1_width} ${col2_width} ${col3_width} ${col4_width}
+            
+            # List all datasets - using ORIGINAL function with logfile parameter
+            for dataset in $(zfs list -r -o name -H "${pool}"); do
+                draw_table_row "${dataset}" ${col1_width} ${col2_width} ${col3_width} ${col4_width} "${logfile}"
+            done
+            
+            printf "+%${col1_width}s+%${col2_width}s+%${col3_width}s+%${col4_width}s+\n" \
+                   "$(printf '%0.s-' $(seq 1 $col1_width))" \
+                   "$(printf '%0.s-' $(seq 1 $col2_width))" \
+                   "$(printf '%0.s-' $(seq 1 $col3_width))" \
+                   "$(printf '%0.s-' $(seq 1 $col4_width))"
+                   
+            # Add new reports using ORIGINAL functions
+            draw_monthly_distribution "${logfile}"
+            draw_retention_policy "${logfile}"
+        else
+            # If backup was skipped, show the recent snapshot information
+            echo "SKIPPED DUE TO RECENT SNAPSHOT:"
+            echo "  Recent snapshot: ${BACKUP_STATS["recent_snapshot"]}"
+            echo "  Created at: ${BACKUP_STATS["recent_snapshot_time"]}"
+        fi
         
-        printf "+%${col1_width}s+%${col2_width}s+%${col3_width}s+%${col4_width}s+\n" \
-               "$(printf '%0.s-' $(seq 1 $col1_width))" \
-               "$(printf '%0.s-' $(seq 1 $col2_width))" \
-               "$(printf '%0.s-' $(seq 1 $col3_width))" \
-               "$(printf '%0.s-' $(seq 1 $col4_width))"
-               
-        # Add new reports (Phase 2)
-        draw_monthly_distribution "${logfile}"
-        draw_retention_policy "${logfile}"
-    else
-        # If backup was skipped, show the recent snapshot information
-        echo "DEBUG: Backup was skipped, showing recent snapshot info" >> "${logfile}"
-        echo "SKIPPED DUE TO RECENT SNAPSHOT:"
-        echo "  Recent snapshot: ${BACKUP_STATS["recent_snapshot"]}"
-        echo "  Created at: ${BACKUP_STATS["recent_snapshot_time"]}"
-    fi
+        # Draw statistics table using ORIGINAL function
+        draw_stats_table "${pool}" "${logfile}"
+        
+    } > "${temp_report}"
     
-    # Draw statistics table
-    echo "DEBUG: Drawing statistics table" >> "${logfile}"
-    draw_stats_table "${pool}" "${logfile}"
+    # Display the clean report on stdout
+    cat "${temp_report}"
     
-    # Debug at end
+    # Append the clean report to logfile
+    cat "${temp_report}" >> "${logfile}"
+    
+    # Clean up
+    rm -f "${temp_report}"
+    
+    # Debug at end - ONLY to logfile
     echo "DEBUG: Finished generate_summary_report" >> "${logfile}"
 }
 
@@ -592,8 +602,8 @@ log_backup() {
         echo "✗ Skipping backup - Recent snapshot exists (less than 24h old)" | tee -a "$logfile"
         printf '\n\n' | tee -a "$logfile"
         
-        # Generate summary report without execution summary header
-        generate_summary_report "${pool}" "✗ SKIPPED (Recent snapshot exists)" "${logfile}" | tee -a "${logfile}"
+        # Generate summary report - NO TEE, function handles output internally
+        generate_summary_report "${pool}" "✗ SKIPPED (Recent snapshot exists)" "${logfile}"
         return 0
     fi
 
@@ -606,15 +616,15 @@ log_backup() {
         cat "$temp_error_file" | tee -a "$logfile"
         printf '\n\n' | tee -a "$logfile"
         
-        # Generate summary report without execution summary header
-        generate_summary_report "${pool}" "✗ FAILED" "${logfile}" | tee -a "${logfile}"
+        # Generate summary report - NO TEE, function handles output internally
+        generate_summary_report "${pool}" "✗ FAILED" "${logfile}"
         FAILED_POOLS+=("$pool")
     else
         log_message "- Backup completed successfully" | tee -a "$logfile"
         printf '\n' | tee -a "$logfile"
         
-        # Generate summary report without execution summary header
-        generate_summary_report "${pool}" "✓ COMPLETED" "${logfile}" | tee -a "${logfile}"
+        # Generate summary report - NO TEE, function handles output internally
+        generate_summary_report "${pool}" "✓ COMPLETED" "${logfile}"
     fi
 
     rm -f "$temp_error_file"
