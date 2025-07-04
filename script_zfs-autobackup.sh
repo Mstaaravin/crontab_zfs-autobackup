@@ -3,7 +3,7 @@
 # Copyright (c) 2024. All rights reserved.
 #
 # Name: script_zfs-autobackup.sh
-# Version: 1.0.13
+# Version: 1.0.15
 # Author: Mstaaravin
 # Description: ZFS backup script with automated snapshot management and logging
 #             This script performs ZFS backups using zfs-autobackup tool
@@ -203,10 +203,11 @@ categorize_snapshots() {
             local snap_name=$(echo "${snapshot}" | cut -d'@' -f2)
             echo "DEBUG: Processing snapshot: ${snap_name}, creation: ${creation} ($(date -d @${creation} '+%Y-%m-%d %H:%M'))" >> "${log_file}"
             
-            # Skip snapshots that don't follow expected patterns
-            # Allow various snapshot naming conventions, not just pool-YYYYMMDDHHMMSS
-            if [[ ! "${snap_name}" =~ ^[a-zA-Z0-9_-]+-[0-9]{8} ]]; then
+            # Updated pattern to handle 14-digit timestamps and various prefixes
+            # Accept snapshots like: zlhome01-YYYYMMDDHHMMSS, to_spcc1117-YYYYMMDDHHMMSS, etc.
+            if [[ ! "${snap_name}" =~ ^[a-zA-Z0-9_-]+-[0-9]{14}$ ]]; then
                 echo "DEBUG: Skipping snapshot with unexpected name format: ${snap_name}" >> "${log_file}"
+                echo "DEBUG: Expected format: prefix-YYYYMMDDHHMMSS (14 digits)" >> "${log_file}"
                 continue
             fi
             
@@ -633,42 +634,69 @@ log_backup() {
 
 # Removes log files that don't have matching snapshots
 # Only processes logs older than current day
-# Improved to better extract snapshot dates and provide more logging
+# Fixed to handle 14-digit timestamps and multiple snapshot prefixes
 clean_old_logs() {
     local pool=$1
     local current_date=$(date +%Y%m%d)
     
     log_message "Cleaning logs for $pool using match_snapshots policy"
     
-    # Get dates of existing snapshots with improved pattern matching
-    # This now properly extracts the YYYYMMDD portion from snapshot names
+    # Get all snapshots for the pool and extract dates from 14-digit timestamps
+    # This handles various snapshot prefixes (zlhome01-, to_spcc1117-, usbdisk-, etc.)
     local snapshot_dates=$(zfs list -t snapshot -o name -H "$pool" | 
-                          grep -E "@${pool}-[0-9]{8}" | 
-                          sed -E "s/.*@${pool}-([0-9]{8}).*/\1/" | 
+                          grep -E "@[a-zA-Z0-9_-]+-[0-9]{14}" | 
+                          sed -E "s/.*@[a-zA-Z0-9_-]+-([0-9]{8})[0-9]{6}/\1/" | 
                           sort -u)
     
     # Add logging to help troubleshoot snapshot date extraction
-    local snapshot_count=$(echo "$snapshot_dates" | wc -w)
+    local snapshot_count=$(echo "$snapshot_dates" | grep -c "^[0-9]\{8\}$" || echo "0")
     log_message "Found $snapshot_count unique snapshot dates for $pool"
     
-    # Check each log file
+    # Debug: Show sample of extracted dates
+    if [ "$snapshot_count" -gt 0 ]; then
+        log_message "Sample extracted dates: $(echo "$snapshot_dates" | head -3 | tr '\n' ' ')"
+    else
+        log_message "WARNING: No valid snapshot dates found with expected pattern"
+        # Show sample snapshot names for debugging
+        local sample_snapshots=$(zfs list -t snapshot -o name -H "$pool" | head -3)
+        log_message "Sample snapshot names found: $sample_snapshots"
+    fi
+    
+    # Process each log file
+    local logs_processed=0
+    local logs_removed=0
+    local logs_kept=0
+    
     find "$LOG_DIR" -name "${pool}_backup_*.log" | while read logfile; do
-        # Extract the date portion (YYYYMMDD) from the log filename
-        log_date=$(echo "$logfile" | grep -o '[0-9]\{8\}')
+        logs_processed=$((logs_processed + 1))
         
-        # Skip if it's today's log
-        if [ "$log_date" = "$current_date" ]; then
+        # Extract the date portion (YYYYMMDD) from the log filename
+        log_date=$(basename "$logfile" | grep -o '[0-9]\{8\}')
+        
+        # Skip if no valid date found in filename
+        if [ -z "$log_date" ]; then
+            log_message "WARNING: Could not extract date from log filename: $logfile"
             continue
         fi
         
-        # Only remove if it's an old log without corresponding snapshot
-        if ! echo "$snapshot_dates" | grep -q "$log_date"; then
-            log_message "Removing old log without matching snapshot: $logfile"
-            rm "$logfile"
+        # Skip if it's today's log
+        if [ "$log_date" = "$current_date" ]; then
+            log_message "Keeping current day log: $logfile"
+            continue
+        fi
+        
+        # Check if we have snapshots for this date
+        if echo "$snapshot_dates" | grep -q "^${log_date}$"; then
+            log_message "Keeping log that matches snapshot date $log_date: $logfile"
+            logs_kept=$((logs_kept + 1))
         else
-            log_message "Keeping log that matches snapshot date: $logfile"
+            log_message "Removing old log without matching snapshot for date $log_date: $logfile"
+            rm "$logfile"
+            logs_removed=$((logs_removed + 1))
         fi
     done
+    
+    log_message "Log cleanup completed for $pool: processed=$logs_processed, removed=$logs_removed, kept=$logs_kept"
 }
 
 
