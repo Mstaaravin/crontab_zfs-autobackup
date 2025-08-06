@@ -293,33 +293,31 @@ STATISTICS:
 
 ### Full Backup Summary Example
 ```
-===== BACKUP SUMMARY (2025-05-11 01:18:02) =====
-POOL: zlhome01  |  Status: ✓ COMPLETED  |  Last backup: 2025-05-11 01:18:02
-Log file: /root/logs/zlhome01_backup_20250511_0116.log
-
+===== BACKUP SUMMARY (2025-08-06 20:01:09) =====
 DATASETS SUMMARY:
 +--------------------------------+----------------+--------------------------------+---------------+
 | Dataset                        | Total Snaps    | Last Snapshot                  | Space Used    |
 +--------------------------------+----------------+--------------------------------+---------------+
-| zlhome01                       | 3 (1M,0W,0D)   | usbdisk-20250404181119         | 2.10T         |
-| zlhome01/HOME.cmiranda         | 20 (5M,0W,13D) | zlhome01-20250511011637        | 1.93T         |
-| zlhome01/HOME.root             | 20 (5M,0W,13D) | zlhome01-20250511011637        | 15.8G         |
-| zlhome01/LIBVIRT.W10.opti...   | 5 (0M,0W,5D)   | zlhome01-20250510230007        | 21.2G         |
-| zlhome01/etc.libvirt.qemu      | 16 (5M,0W,9D)  | zlhome01-20250511011637        | 454K          |
-| zlhome01/var.lib.docker        | 17 (8M,0W,7D)  | zlhome01-20250510230007        | 89.8G         |
-| zlhome01/var.snap.lxd          | 21 (5M,0W,13D) | zlhome01-20250511011637        | 43.5G         |
+| zlhome01                       | 3 (3M,0W,0D)   | usbdisk-20250404181119         | 2.42T         |
+| zlhome01/HOME.cmiranda         | 27 (10M,3W,14D) | zlhome01-20250806200053        | 2.10T         |
+| zlhome01/HOME.root             | 27 (10M,3W,14D) | zlhome01-20250806200053        | 16.0G         |
+| zlhome01/LIBVIRT.W10.opti...   | 17 (3M,7W,7D)  | zlhome01-20250806180603        | 72.5G         |
+| zlhome01/VIRT.bookworm01       | 14 (1M,6W,7D)  | zlhome01-20250806180603        | 5.74G         |
+| zlhome01/etc.libvirt.qemu      | 23 (9M,6W,8D)  | zlhome01-20250806180603        | 624K          |
+| zlhome01/var.lib.docker        | 23 (10M,6W,7D) | zlhome01-20250806180603        | 188G          |
+| zlhome01/var.snap.lxd          | 28 (11M,3W,14D) | zlhome01-20250806200053        | 45.0G         |
 +--------------------------------+----------------+--------------------------------+---------------+
 
 SNAPSHOT DISTRIBUTION:
 +--------------------+----------+----------+----------+
 | Date Range         | Monthly  | Weekly   | Daily    |
 +--------------------+----------+----------+----------+
-| 2025-05 (Current)  | 0        | 0        | 60       |
-| 2025-04            | 4        | 0        | 0        |
-| 2025-03            | 5        | 0        | 0        |
-| 2025-02            | 5        | 0        | 0        |
-| 2025-01            | 5        | 0        | 0        |
-| 2024-12            | 5        | 0        | 0        |
+| 2025-08 (Current)  | 0        | 0        | 15       |
+| 2025-07            | 1        | 7        | 1        |
+| 2025-06            | 1        | 0        | 0        |
+| 2025-05            | 3        | 0        | 0        |
+| 2025-04            | 3        | 0        | 0        |
+| 2025-03            | 1        | 0        | 0        |
 +--------------------+----------+----------+----------+
 
 RETENTION POLICY:
@@ -331,14 +329,48 @@ STATISTICS:
 +------------------------+---------------+
 | Metric                 | Value         |
 +------------------------+---------------+
-| Total Datasets         | 7             |
+| Total Datasets         | 8             |
 | Snapshots Created      |               |
 | Snapshots Deleted      |               |
-| Monthly Snapshots      | 29            |
-| Weekly Snapshots       | 0             |
-| Daily Snapshots        | 60            |
-| Operation Duration     | 1 minutes, 24 seconds |
+| Monthly Snapshots      | 57            |
+| Weekly Snapshots       | 34            |
+| Daily Snapshots        | 71            |
+| Operation Duration     | 16s           |
 +------------------------+---------------+
+
+LOG ROTATION:
+[2025-08-06 20:01:09] Cleaning logs for zlhome01 using match_snapshots policy
+[2025-08-06 20:01:09] Found 25 unique snapshot dates for zlhome01 (recursive search)
+[2025-08-06 20:01:09] Sample extracted dates: 20241115 20241214 20250113 20250211 20250313 
+[2025-08-06 20:01:09] Date range: 20241115 to 20250806
+[2025-08-06 20:01:09] Keeping log that matches snapshot date 20250805: /root/logs/zlhome01_backup_20250805_2316.log
+[2025-08-06 20:01:09] Keeping log that matches snapshot date 20250730: /root/logs/zlhome01_backup_20250730_0904.log
+[2025-08-06 20:01:09] Keeping log that matches snapshot date 20250803: /root/logs/zlhome01_backup_20250803_1800.log
+[2025-08-06 20:01:09] Keeping current day log: /root/logs/zlhome01_backup_20250806_1942.log
+[2025-08-06 20:01:09] Keeping log that matches snapshot date 20250719: /root/logs/zlhome01_backup_20250719_1800.log
+[2025-08-06 20:01:10] Keeping log that matches snapshot date 20250726: /root/logs/zlhome01_backup_20250726_1800.log
+[2025-08-06 20:01:10] Keeping current day log: /root/logs/zlhome01_backup_20250806_1853.log
+[2025-08-06 20:01:10] Keeping current day log: /root/logs/zlhome01_backup_20250806_1854.log
+[2025-08-06 20:01:10] Keeping log that matches snapshot date 20250804: /root/logs/zlhome01_backup_20250804_1800.log
+[2025-08-06 20:01:10] Keeping log that matches snapshot date 20250731: /root/logs/zlhome01_backup_20250731_1800.log
+[2025-08-06 20:01:10] Keeping log that matches snapshot date 20250802: /root/logs/zlhome01_backup_20250802_2201.log
+[2025-08-06 20:01:10] Keeping current day log: /root/logs/zlhome01_backup_20250806_1806.log
+[2025-08-06 20:01:10] Keeping log that matches snapshot date 20250707: /root/logs/zlhome01_backup_20250707_1930.log
+[2025-08-06 20:01:10] Keeping log that matches snapshot date 20250709: /root/logs/zlhome01_backup_20250709_1920.log
+[2025-08-06 20:01:10] Keeping log that matches snapshot date 20250725: /root/logs/zlhome01_backup_20250725_1800.log
+[2025-08-06 20:01:10] Keeping current day log: /root/logs/zlhome01_backup_20250806_1946.log
+[2025-08-06 20:01:10] Keeping current day log: /root/logs/zlhome01_backup_20250806_2000.log
+[2025-08-06 20:01:10] Keeping log that matches snapshot date 20250804: /root/logs/zlhome01_backup_20250804_2030.log
+[2025-08-06 20:01:10] Keeping current day log: /root/logs/zlhome01_backup_20250806_1951.log
+[2025-08-06 20:01:10] Keeping log that matches snapshot date 20250710: /root/logs/zlhome01_backup_20250710_1920.log
+[2025-08-06 20:01:10] Keeping current day log: /root/logs/zlhome01_backup_20250806_1849.log
+[2025-08-06 20:01:10] Keeping current day log: /root/logs/zlhome01_backup_20250806_1851.log
+[2025-08-06 20:01:10] Keeping log that matches snapshot date 20250801: /root/logs/zlhome01_backup_20250801_1800.log
+[2025-08-06 20:01:10] Keeping log that matches snapshot date 20250724: /root/logs/zlhome01_backup_20250724_1800.log
+[2025-08-06 20:01:10] Log cleanup completed for zlhome01: processed=24, removed=0, kept=24
+
+POOL: zlhome01  |  Status: ✓ COMPLETED  |  Last backup: 2025-08-06 20:01:09
+Log file: /root/logs/zlhome01_backup_20250806_2000.log
 ```
 
 This enhanced reporting makes it easy to:
