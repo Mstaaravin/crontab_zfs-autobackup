@@ -3,7 +3,7 @@
 # Copyright (c) 2024. All rights reserved.
 #
 # Name: script_zfs-autobackup.sh
-# Version: 1.0.15
+# Version: 1.0.16
 # Author: Mstaaravin
 # Description: ZFS backup script with automated snapshot management and logging
 #             This script performs ZFS backups using zfs-autobackup tool
@@ -156,16 +156,10 @@ categorize_snapshots() {
     local pool=$1
     local log_file=$2
     
-    echo "DEBUG: Starting categorize_snapshots for pool ${pool}" >> "${log_file}"
-    
     # Define date thresholds using epoch timestamps for accurate comparison
     local current_timestamp=$(date +%s)
     local one_week_ago_timestamp=$((current_timestamp - 604800))    # 7 days * 24 * 60 * 60
     local one_month_ago_timestamp=$((current_timestamp - 2592000))  # 30 days * 24 * 60 * 60
-    
-    echo "DEBUG: Current timestamp: ${current_timestamp}" >> "${log_file}"
-    echo "DEBUG: One week ago timestamp: ${one_week_ago_timestamp} ($(date -d @${one_week_ago_timestamp} '+%Y-%m-%d'))" >> "${log_file}"
-    echo "DEBUG: One month ago timestamp: ${one_month_ago_timestamp} ($(date -d @${one_month_ago_timestamp} '+%Y-%m-%d'))" >> "${log_file}"
     
     # Initialize monthly distribution counters
     local current_month=$(date +%Y-%m)
@@ -174,19 +168,15 @@ categorize_snapshots() {
         MONTHLY_DISTRIBUTION["${month_key},monthly"]=0
         MONTHLY_DISTRIBUTION["${month_key},weekly"]=0
         MONTHLY_DISTRIBUTION["${month_key},daily"]=0
-        echo "DEBUG: Initialized month ${month_key}" >> "${log_file}"
     done
     
     # Array to track processed timestamps to avoid double counting in monthly distribution
     declare -A PROCESSED_TIMESTAMPS
-    echo "DEBUG: Initialized PROCESSED_TIMESTAMPS array for unique counting" >> "${log_file}"
     
     # Process all datasets in the pool
     local datasets=$(zfs list -r -o name -H "${pool}" 2>/dev/null)
     
     for dataset in ${datasets}; do
-        echo "DEBUG: Processing dataset ${dataset}" >> "${log_file}"
-        
         # Initialize counts
         local monthly_count=0
         local weekly_count=0
@@ -201,81 +191,49 @@ categorize_snapshots() {
             
             # Extract snapshot name (after @)
             local snap_name=$(echo "${snapshot}" | cut -d'@' -f2)
-            echo "DEBUG: Processing snapshot: ${snap_name}, creation: ${creation} ($(date -d @${creation} '+%Y-%m-%d %H:%M'))" >> "${log_file}"
             
             # Updated pattern to handle 14-digit timestamps and various prefixes
             # Accept snapshots like: zlhome01-YYYYMMDDHHMMSS, to_spcc1117-YYYYMMDDHHMMSS, etc.
             if [[ ! "${snap_name}" =~ ^[a-zA-Z0-9_-]+-[0-9]{14}$ ]]; then
-                echo "DEBUG: Skipping snapshot with unexpected name format: ${snap_name}" >> "${log_file}"
-                echo "DEBUG: Expected format: prefix-YYYYMMDDHHMMSS (14 digits)" >> "${log_file}"
                 continue
             fi
             
             # Get snapshot month for distribution tracking
             local snap_month=$(date -d @${creation} +%Y-%m)
             
-            echo "DEBUG: Snapshot month: ${snap_month}, creation timestamp: ${creation}" >> "${log_file}"
-            
             # Categorize snapshot based on creation timestamp
             if [ ${creation} -lt ${one_month_ago_timestamp} ]; then
-                echo "DEBUG: Classified as monthly (${creation} < ${one_month_ago_timestamp})" >> "${log_file}"
                 monthly_count=$((monthly_count + 1))
                 # Only count unique timestamps for monthly distribution
                 if [ -z "${PROCESSED_TIMESTAMPS[${creation}]}" ]; then
                     MONTHLY_DISTRIBUTION["${snap_month},monthly"]=$((MONTHLY_DISTRIBUTION["${snap_month},monthly"] + 1))
                     PROCESSED_TIMESTAMPS[${creation}]="monthly"
-                    echo "DEBUG: Updated ${snap_month},monthly to ${MONTHLY_DISTRIBUTION["${snap_month},monthly"]} (unique timestamp)" >> "${log_file}"
-                else
-                    echo "DEBUG: Skipping duplicate timestamp ${creation} for monthly distribution" >> "${log_file}"
                 fi
             elif [ ${creation} -lt ${one_week_ago_timestamp} ]; then
-                echo "DEBUG: Classified as weekly (${creation} < ${one_week_ago_timestamp})" >> "${log_file}"
                 weekly_count=$((weekly_count + 1))
                 # Only count unique timestamps for monthly distribution
                 if [ -z "${PROCESSED_TIMESTAMPS[${creation}]}" ]; then
                     MONTHLY_DISTRIBUTION["${snap_month},weekly"]=$((MONTHLY_DISTRIBUTION["${snap_month},weekly"] + 1))
                     PROCESSED_TIMESTAMPS[${creation}]="weekly"
-                    echo "DEBUG: Updated ${snap_month},weekly to ${MONTHLY_DISTRIBUTION["${snap_month},weekly"]} (unique timestamp)" >> "${log_file}"
-                else
-                    echo "DEBUG: Skipping duplicate timestamp ${creation} for weekly distribution" >> "${log_file}"
                 fi
             else
-                echo "DEBUG: Classified as daily (${creation} >= ${one_week_ago_timestamp})" >> "${log_file}"
                 daily_count=$((daily_count + 1))
                 # Only count unique timestamps for monthly distribution
                 if [ -z "${PROCESSED_TIMESTAMPS[${creation}]}" ]; then
                     MONTHLY_DISTRIBUTION["${snap_month},daily"]=$((MONTHLY_DISTRIBUTION["${snap_month},daily"] + 1))
                     PROCESSED_TIMESTAMPS[${creation}]="daily"
-                    echo "DEBUG: Updated ${snap_month},daily to ${MONTHLY_DISTRIBUTION["${snap_month},daily"]} (unique timestamp)" >> "${log_file}"
-                else
-                    echo "DEBUG: Skipping duplicate timestamp ${creation} for daily distribution" >> "${log_file}"
                 fi
             fi
-            
-            echo "DEBUG: Current counts: monthly=${monthly_count}, weekly=${weekly_count}, daily=${daily_count}" >> "${log_file}"
         done < <(zfs list -t snapshot -o name,creation -Hp "${dataset}" 2>/dev/null)
         
         # Store counts for this dataset
         SNAPSHOT_COUNTS["${dataset},monthly"]=${monthly_count}
         SNAPSHOT_COUNTS["${dataset},weekly"]=${weekly_count}
         SNAPSHOT_COUNTS["${dataset},daily"]=${daily_count}
-        
-        echo "DEBUG: Final counts for ${dataset}: monthly=${monthly_count}, weekly=${weekly_count}, daily=${daily_count}" >> "${log_file}"
     done
-    
-    echo "DEBUG: Finished categorize_snapshots for pool ${pool}" >> "${log_file}"
-    echo "DEBUG: Monthly distribution state:" >> "${log_file}"
-    for i in {0..5}; do
-        local month_key=$(date -d "$current_month-01 -$i month" +%Y-%m)
-        echo "DEBUG: Month ${month_key}: monthly=${MONTHLY_DISTRIBUTION["${month_key},monthly"]}, weekly=${MONTHLY_DISTRIBUTION["${month_key},weekly"]}, daily=${MONTHLY_DISTRIBUTION["${month_key},daily"]}" >> "${log_file}"
-    done
-    
-    # Debug: Show total unique timestamps processed
-    echo "DEBUG: Total unique timestamps processed: ${#PROCESSED_TIMESTAMPS[@]}" >> "${log_file}"
     
     return 0
 }
-
 
 
 
@@ -295,9 +253,6 @@ parse_autobackup_output() {
         local snap_name=$(echo "${line}" | grep -o '[^ ]*-[0-9]\{14\}')
         CREATED_SNAPSHOTS+=("${snap_name}")
     done < <(grep "Creating snapshots.*-[0-9]\{14\}" "${logfile}" || true)
-    
-    # Log basic stats
-    echo "DEBUG: Found ${created_count} created and ${deleted_count} deleted snapshots" >> "${logfile}"
 }
 
 
@@ -320,8 +275,6 @@ format_duration() {
 # Function to display snapshot distribution by month
 draw_monthly_distribution() {
     local logfile=$1  # Pass logfile as parameter
-    
-    echo "DEBUG: Drawing monthly distribution table" >> "${logfile}"
     
     echo
     echo "SNAPSHOT DISTRIBUTION:"
@@ -356,8 +309,6 @@ draw_monthly_distribution() {
         local weekly="${MONTHLY_DISTRIBUTION["${month_key},weekly"]:-0}"
         local daily="${MONTHLY_DISTRIBUTION["${month_key},daily"]:-0}"
         
-        echo "DEBUG: Month ${month_key}: monthly=${monthly}, weekly=${weekly}, daily=${daily}" >> "${logfile}"
-        
         printf "| %-18s | %-8s | %-8s | %-8s |\n" \
                "$month_display" "$monthly" "$weekly" "$daily"
     done
@@ -373,8 +324,6 @@ draw_monthly_distribution() {
 # Function to display the configured retention policy
 draw_retention_policy() {
     local logfile=$1  # Pass logfile as parameter
-    
-    echo "DEBUG: Drawing retention policy information" >> "${logfile}"
     
     echo
     echo "RETENTION POLICY:"
@@ -427,9 +376,6 @@ draw_table_row() {
     local last_snap="${DATASETS_INFO["${dataset},last_snap"]}"
     local space="${DATASETS_INFO["${dataset},space"]}"
     
-    # Debug the snapshot count variables
-    echo "DEBUG: draw_table_row for ${dataset}: snaps=${snaps}, monthly=${monthly}, weekly=${weekly}, daily=${daily}" >> "${log_file}"
-    
     # Format snapshot count with breakdown
     local snap_display="${snaps} (${monthly}M,${weekly}W,${daily}D)"
     
@@ -453,8 +399,6 @@ draw_stats_table() {
     local pool=$1
     local logfile=$2  # Pass logfile as parameter
     
-    echo "DEBUG: Drawing statistics table" >> "${logfile}"
-    
     echo
     echo "STATISTICS:"
     printf "+%-24s+%-15s+\n" "$(printf '%0.s-' $(seq 1 24))" "$(printf '%0.s-' $(seq 1 15))"
@@ -476,8 +420,6 @@ draw_stats_table() {
         total_daily=$((total_daily + ${SNAPSHOT_COUNTS["${dataset},daily"]:-0}))
     done
     
-    echo "DEBUG: Total snapshots by type: monthly=${total_monthly}, weekly=${total_weekly}, daily=${total_daily}" >> "${logfile}"
-    
     printf "| %-22s | %-13s |\n" "Monthly Snapshots" "$total_monthly"
     printf "| %-22s | %-13s |\n" "Weekly Snapshots" "$total_weekly"
     printf "| %-22s | %-13s |\n" "Daily Snapshots" "$total_daily"
@@ -494,9 +436,6 @@ generate_summary_report() {
     local status=$2
     local logfile=$3
     
-    # Debug message - ONLY to logfile
-    echo "DEBUG: Starting generate_summary_report for pool ${pool} with status ${status}" >> "${logfile}"
-    
     # Calculate duration
     local end_time=$(date +%s)
     local duration=$((end_time - START_TIME))
@@ -505,23 +444,13 @@ generate_summary_report() {
     # Update dataset information
     collect_dataset_info "${pool}"
     
-    # Debug before categorize_snapshots - ONLY to logfile
-    echo "DEBUG: About to call categorize_snapshots(${pool})" >> "${logfile}"
-    
     # Categorize snapshots - pass logfile as parameter
     categorize_snapshots "${pool}" "${logfile}"
     
-    # Debug after categorize_snapshots - ONLY to logfile
-    echo "DEBUG: Finished calling categorize_snapshots" >> "${logfile}"
-    
     # If this was a successful backup, parse the log for additional information
     if [ "${status}" = "COMPLETED" ]; then
-        echo "DEBUG: Parsing autobackup output" >> "${logfile}"
         parse_autobackup_output "${logfile}"
     fi
-    
-    # Debug before printing summary - ONLY to logfile
-    echo "DEBUG: About to print BACKUP SUMMARY" >> "${logfile}"
     
     # Define table column widths
     local col1_width=32  # Dataset
@@ -536,9 +465,6 @@ generate_summary_report() {
     {
         echo
         echo "===== BACKUP SUMMARY ($(date '+%Y-%m-%d %H:%M:%S')) ====="
-        echo "POOL: ${pool}  |  Status: ${status}  |  Last backup: $(date '+%Y-%m-%d %H:%M:%S')"
-        echo "Log file: ${logfile}"
-        echo
         
         # Print dataset summary table if backup was not skipped
         if [ "${status}" != "✗ SKIPPED (Recent snapshot exists)" ]; then
@@ -580,8 +506,9 @@ generate_summary_report() {
     # Clean up
     rm -f "${temp_report}"
     
-    # Debug at end - ONLY to logfile
-    echo "DEBUG: Finished generate_summary_report" >> "${logfile}"
+    # Store pool info for use in main function - will be written AFTER LOG ROTATION
+    BACKUP_STATS["pool_info"]="POOL: ${pool}  |  Status: ${status}  |  Last backup: $(date '+%Y-%m-%d %H:%M:%S')"
+    BACKUP_STATS["log_file_info"]="Log file: ${logfile}"
 }
 
 
@@ -628,37 +555,57 @@ log_backup() {
         generate_summary_report "${pool}" "✓ COMPLETED" "${logfile}"
     fi
 
+    # Add LOG ROTATION section after the backup summary
+    {
+        echo
+        echo "LOG ROTATION:"
+    } | tee -a "$logfile"
+    
+    # Clean logs for this pool with output captured
+    clean_old_logs "$pool" | tee -a "$logfile"
+    
+    # Add the final pool information to logfile after LOG ROTATION
+    {
+        echo
+        echo "${BACKUP_STATS["pool_info"]}"
+        echo "${BACKUP_STATS["log_file_info"]}"
+    } >> "$logfile"
+
     rm -f "$temp_error_file"
 }
 
 
 # Removes log files that don't have matching snapshots
 # Only processes logs older than current day
-# Fixed to handle 14-digit timestamps and multiple snapshot prefixes
+# Fixed to handle 14-digit timestamps and search recursively in all datasets
 clean_old_logs() {
     local pool=$1
     local current_date=$(date +%Y%m%d)
     
     log_message "Cleaning logs for $pool using match_snapshots policy"
     
-    # Get all snapshots for the pool and extract dates from 14-digit timestamps
-    # This handles various snapshot prefixes (zlhome01-, to_spcc1117-, usbdisk-, etc.)
-    local snapshot_dates=$(zfs list -t snapshot -o name -H "$pool" | 
+    # Get all snapshots from pool AND all its datasets (recursive search)
+    # Extract dates from 14-digit timestamps, handling various snapshot prefixes
+    local snapshot_dates=$(zfs list -t snapshot -o name -H -r "$pool" | 
                           grep -E "@[a-zA-Z0-9_-]+-[0-9]{14}" | 
                           sed -E "s/.*@[a-zA-Z0-9_-]+-([0-9]{8})[0-9]{6}/\1/" | 
                           sort -u)
     
-    # Add logging to help troubleshoot snapshot date extraction
+    # Count valid extracted dates
     local snapshot_count=$(echo "$snapshot_dates" | grep -c "^[0-9]\{8\}$" || echo "0")
-    log_message "Found $snapshot_count unique snapshot dates for $pool"
+    log_message "Found $snapshot_count unique snapshot dates for $pool (recursive search)"
     
     # Debug: Show sample of extracted dates
     if [ "$snapshot_count" -gt 0 ]; then
-        log_message "Sample extracted dates: $(echo "$snapshot_dates" | head -3 | tr '\n' ' ')"
+        log_message "Sample extracted dates: $(echo "$snapshot_dates" | head -5 | tr '\n' ' ')"
+        # Show date range
+        local oldest_date=$(echo "$snapshot_dates" | head -1)
+        local newest_date=$(echo "$snapshot_dates" | tail -1)
+        log_message "Date range: $oldest_date to $newest_date"
     else
         log_message "WARNING: No valid snapshot dates found with expected pattern"
         # Show sample snapshot names for debugging
-        local sample_snapshots=$(zfs list -t snapshot -o name -H "$pool" | head -3)
+        local sample_snapshots=$(zfs list -t snapshot -o name -H -r "$pool" | head -5)
         log_message "Sample snapshot names found: $sample_snapshots"
     fi
     
@@ -667,7 +614,10 @@ clean_old_logs() {
     local logs_removed=0
     local logs_kept=0
     
-    find "$LOG_DIR" -name "${pool}_backup_*.log" | while read logfile; do
+    # Use a safer approach to avoid subshell issues with counters
+    while IFS= read -r logfile; do
+        [ -z "$logfile" ] && continue
+        
         logs_processed=$((logs_processed + 1))
         
         # Extract the date portion (YYYYMMDD) from the log filename
@@ -682,6 +632,7 @@ clean_old_logs() {
         # Skip if it's today's log
         if [ "$log_date" = "$current_date" ]; then
             log_message "Keeping current day log: $logfile"
+            logs_kept=$((logs_kept + 1))
             continue
         fi
         
@@ -694,7 +645,7 @@ clean_old_logs() {
             rm "$logfile"
             logs_removed=$((logs_removed + 1))
         fi
-    done
+    done < <(find "$LOG_DIR" -name "${pool}_backup_*.log" 2>/dev/null)
     
     log_message "Log cleanup completed for $pool: processed=$logs_processed, removed=$logs_removed, kept=$logs_kept"
 }
@@ -734,26 +685,22 @@ main() {
         POOLS=("${SOURCE_POOLS[@]}")
     fi
 
-    # Process each pool
+    # Process each pool (now includes LOG ROTATION within each pool)
     for pool in "${POOLS[@]}"; do
         log_backup "$pool"
         sleep 5  # Brief pause between pools
     done
 
-    # Clean old logs
-    for pool in "${POOLS[@]}"; do
-        clean_old_logs "$pool"
-    done
-
-    # Final execution summary
+    # Final completion message and pool info
     log_message "Backup process completed"
     echo
-    echo "Execution Summary:"
+    
+    # Display pool and log file info directly
     for pool in "${POOLS[@]}"; do
-        if [[ " ${FAILED_POOLS[@]} " =~ " ${pool} " ]]; then
-            echo "- $pool: ✗ Failed (/root/logs/${pool}_backup_${DATE}.log)"
-        else
-            echo "- $pool: ✓ Completed (/root/logs/${pool}_backup_${DATE}.log)"
+        # Display the stored pool info from BACKUP_STATS
+        if [ -n "${BACKUP_STATS["pool_info"]}" ]; then
+            echo "${BACKUP_STATS["pool_info"]}"
+            echo "${BACKUP_STATS["log_file_info"]}"
         fi
     done
 }
